@@ -1,0 +1,301 @@
+{
+  "name": "matrix-oai-compatible-copilot-provider",
+  "displayName": "Matrix OAI Gateway for Copilot",
+  "description": "Use OpenAI-compatible endpoints in Copilot Chat and expose VS Code language models through local OpenAI/Anthropic-compatible proxy APIs.",
+  "version": "0.1.0",
+  "publisher": "matrix-oai-compatible-copilot-provider",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:matrixOaiCopilot.addProvider",
+    "onCommand:matrixOaiCopilot.addModel",
+    "onCommand:matrixOaiCopilot.addPresetModel",
+    "onCommand:matrixOaiCopilot.setApiKey",
+    "onCommand:matrixOaiCopilot.clearApiKey",
+    "onCommand:matrixOaiCopilot.refreshModels",
+    "onCommand:matrixOaiCopilot.startProxy",
+    "onCommand:matrixOaiCopilot.stopProxy",
+    "onCommand:matrixOaiCopilot.restartProxy",
+    "onCommand:matrixOaiCopilot.showConfig",
+    "onCommand:matrixOaiCopilot.showOutput",
+    "onCommand:matrixOaiCopilot.openSettings",
+    "onCommand:matrixOaiCopilot.resetUsage"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "matrixOaiCopilot.showConfig",
+        "title": "Matrix OAI Gateway: Configuration"
+      },
+      {
+        "command": "matrixOaiCopilot.addProvider",
+        "title": "Matrix OAI Gateway: Add Provider"
+      },
+      {
+        "command": "matrixOaiCopilot.addModel",
+        "title": "Matrix OAI Gateway: Add Model"
+      },
+      {
+        "command": "matrixOaiCopilot.addPresetModel",
+        "title": "Matrix OAI Gateway: Add Preset Model"
+      },
+      {
+        "command": "matrixOaiCopilot.setApiKey",
+        "title": "Matrix OAI Gateway: Set API Key"
+      },
+      {
+        "command": "matrixOaiCopilot.clearApiKey",
+        "title": "Matrix OAI Gateway: Clear API Key"
+      },
+      {
+        "command": "matrixOaiCopilot.refreshModels",
+        "title": "Matrix OAI Gateway: Refresh Models"
+      },
+      {
+        "command": "matrixOaiCopilot.startProxy",
+        "title": "Matrix OAI Gateway: Start Proxy"
+      },
+      {
+        "command": "matrixOaiCopilot.stopProxy",
+        "title": "Matrix OAI Gateway: Stop Proxy"
+      },
+      {
+        "command": "matrixOaiCopilot.restartProxy",
+        "title": "Matrix OAI Gateway: Restart Proxy"
+      },
+      {
+        "command": "matrixOaiCopilot.showOutput",
+        "title": "Matrix OAI Gateway: Show Output"
+      },
+      {
+        "command": "matrixOaiCopilot.openSettings",
+        "title": "Matrix OAI Gateway: Open Settings"
+      },
+      {
+        "command": "matrixOaiCopilot.resetUsage",
+        "title": "Matrix OAI Gateway: Reset Usage"
+      }
+    ],
+    "configuration": {
+      "title": "Matrix OAI Gateway for Copilot",
+      "properties": {
+        "matrixOaiCopilot.providers": {
+          "type": "array",
+          "default": [
+            {
+              "id": "openai",
+              "name": "OpenAI",
+              "baseUrl": "https://api.openai.com/v1",
+              "apiMode": "openai",
+              "headers": {}
+            },
+            {
+              "id": "ollama",
+              "name": "Ollama Local",
+              "baseUrl": "http://localhost:11434/v1",
+              "apiMode": "ollama",
+              "headers": {}
+            }
+          ],
+          "description": "Reusable upstream providers. Models reference these providers by providerId.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "baseUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable provider id, for example openai, ollama, deepseek, lm-studio."
+              },
+              "name": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "OpenAI-compatible API base URL, for example https://api.openai.com/v1 or http://localhost:11434/v1."
+              },
+              "apiMode": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "ollama",
+                  "anthropic"
+                ],
+                "default": "openai",
+                "description": "Provider API flavor. openai and ollama use /chat/completions; anthropic is reserved for future direct Anthropic routing."
+              },
+              "headers": {
+                "type": "object",
+                "default": {},
+                "description": "Extra headers added to every request for this provider."
+              }
+            }
+          }
+        },
+        "matrixOaiCopilot.models": {
+          "type": "array",
+          "default": [
+            {
+              "id": "gpt-4o-mini",
+              "name": "GPT-4o Mini",
+              "providerId": "openai",
+              "family": "gpt-4o",
+              "version": "gpt-4o-mini",
+              "maxInputTokens": 128000,
+              "supportsTools": true,
+              "supportsImages": true
+            },
+            {
+              "id": "qwen2.5-coder:14b",
+              "name": "Qwen Coder Local",
+              "providerId": "ollama",
+              "family": "qwen",
+              "version": "qwen2.5-coder:14b",
+              "maxInputTokens": 32768,
+              "supportsTools": true,
+              "supportsImages": false
+            }
+          ],
+          "description": "Models exposed to Copilot Chat and the local proxy. Prefer providerId; legacy per-model baseUrl is still supported.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Model id sent to the upstream API, for example gpt-4o-mini or qwen2.5-coder:14b."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in VS Code."
+              },
+              "providerId": {
+                "type": "string",
+                "description": "Provider id from matrixOaiCopilot.providers."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Legacy per-model base URL. Prefer providerId for new configs."
+              },
+              "family": {
+                "type": "string",
+                "default": "oai-compatible"
+              },
+              "version": {
+                "type": "string"
+              },
+              "maxInputTokens": {
+                "type": "number",
+                "default": 128000
+              },
+              "supportsTools": {
+                "type": "boolean",
+                "default": true
+              },
+              "supportsImages": {
+                "type": "boolean",
+                "default": false
+              },
+              "headers": {
+                "type": "object",
+                "description": "Extra headers added only for this model."
+              },
+              "omitUnsupportedParameters": {
+                "type": "boolean",
+                "default": false,
+                "description": "Only send model, messages, stream, and tools/tool_choice. Useful for stricter OpenAI-compatible gateways."
+              }
+            }
+          }
+        },
+        "matrixOaiCopilot.defaultHeaders": {
+          "type": "object",
+          "default": {},
+          "description": "Headers added to every upstream request."
+        },
+        "matrixOaiCopilot.requestTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "description": "Timeout for one upstream chat completion request."
+        },
+        "matrixOaiCopilot.stream": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask upstream endpoints for streaming responses."
+        },
+        "matrixOaiCopilot.temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional default temperature. Null lets VS Code or the upstream model choose."
+        },
+        "matrixOaiCopilot.logLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Write logs to the Matrix OAI Gateway output channel. API keys are never logged."
+        },
+        "matrixOaiCopilot.proxy.autoStart": {
+          "type": "boolean",
+          "default": true
+        },
+        "matrixOaiCopilot.proxy.host": {
+          "type": "string",
+          "default": "127.0.0.1"
+        },
+        "matrixOaiCopilot.proxy.port": {
+          "type": "number",
+          "default": 8080,
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "matrixOaiCopilot.proxy.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default VS Code language model id/name/family used when proxy requests do not match a configured OAI model."
+        },
+        "matrixOaiCopilot.proxy.cors": {
+          "type": "boolean",
+          "default": true
+        },
+        "matrixOaiCopilot.proxy.maxBodyBytes": {
+          "type": "number",
+          "default": 10485760
+        },
+        "matrixOaiCopilot.proxy.requestTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10
+        }
+      }
+    },
+    "languageModelChatProviders": [
+      {
+        "vendor": "matrix-oai-compatible",
+        "displayName": "Matrix OAI Compatible",
+        "managementCommand": "matrixOaiCopilot.showConfig"
+      }
+    ]
+  }
+}
