@@ -1,8 +1,8 @@
 {
   "name": "matrix-oai-compatible-copilot-provider",
   "displayName": "Matrix OAI Gateway for Copilot",
-  "description": "Use OpenAI-compatible endpoints in Copilot Chat and expose VS Code language models through local OpenAI/Anthropic-compatible proxy APIs.",
-  "version": "0.1.0",
+  "description": "OpenAI-compatible Copilot and VS Code language-model gateway with local proxy (Chat Completions + Responses API), usage telemetry, balance checking, and DeepSeek thinking-mode replay. / 支持本地代理(Chat Completions + Responses API)、用量统计、余额查询和 DeepSeek 思考模式回放的 OAI 网关。",
+  "version": "0.2.35",
   "publisher": "matrix-oai-compatible-copilot-provider",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -13,6 +13,24 @@
     "AI",
     "Other"
   ],
+  "keywords": [
+    "copilot",
+    "openai",
+    "oai-compatible",
+    "deepseek",
+    "ollama",
+    "proxy",
+    "language-model",
+    "balance",
+    "gemini",
+    "claude",
+    "mistral",
+    "siliconflow"
+  ],
+  "galleryBanner": {
+    "color": "#101820",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished",
     "onCommand:matrixOaiCopilot.addProvider",
@@ -27,7 +45,11 @@
     "onCommand:matrixOaiCopilot.showConfig",
     "onCommand:matrixOaiCopilot.showOutput",
     "onCommand:matrixOaiCopilot.openSettings",
-    "onCommand:matrixOaiCopilot.resetUsage"
+    "onCommand:matrixOaiCopilot.writeCodexConfig",
+    "onCommand:matrixOaiCopilot.setThinkingEffort",
+    "onCommand:matrixOaiCopilot.setVisionProxyModel",
+    "onCommand:matrixOaiCopilot.resetUsage",
+    "onCommand:matrixOaiCopilot.checkBalance"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -81,8 +103,24 @@
         "title": "Matrix OAI Gateway: Open Settings"
       },
       {
+        "command": "matrixOaiCopilot.writeCodexConfig",
+        "title": "Matrix OAI Gateway: Write Codex Config"
+      },
+      {
+        "command": "matrixOaiCopilot.setThinkingEffort",
+        "title": "Matrix OAI Gateway: Set Copilot Thinking Effort"
+      },
+      {
+        "command": "matrixOaiCopilot.setVisionProxyModel",
+        "title": "Matrix OAI Gateway: Set Vision Proxy Model"
+      },
+      {
         "command": "matrixOaiCopilot.resetUsage",
         "title": "Matrix OAI Gateway: Reset Usage"
+      },
+      {
+        "command": "matrixOaiCopilot.checkBalance",
+        "title": "Matrix OAI Gateway: Check API Balance"
       }
     ],
     "configuration": {
@@ -92,17 +130,17 @@
           "type": "array",
           "default": [
             {
-              "id": "openai",
-              "name": "OpenAI",
-              "baseUrl": "https://api.openai.com/v1",
-              "apiMode": "openai",
+              "id": "ollama",
+              "name": "Ollama Local",
+              "baseUrl": "http://localhost:11434",
+              "apiMode": "ollama",
               "headers": {}
             },
             {
-              "id": "ollama",
-              "name": "Ollama Local",
-              "baseUrl": "http://localhost:11434/v1",
-              "apiMode": "ollama",
+              "id": "deepseek",
+              "name": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com/v1",
+              "apiMode": "openai",
               "headers": {}
             }
           ],
@@ -123,7 +161,7 @@
               },
               "baseUrl": {
                 "type": "string",
-                "description": "OpenAI-compatible API base URL, for example https://api.openai.com/v1 or http://localhost:11434/v1."
+                "description": "Provider base URL. For Ollama native mode use http://localhost:11434; OpenAI-compatible providers usually use a /v1 base URL."
               },
               "apiMode": {
                 "type": "string",
@@ -133,7 +171,7 @@
                   "anthropic"
                 ],
                 "default": "openai",
-                "description": "Provider API flavor. openai and ollama use /chat/completions; anthropic is reserved for future direct Anthropic routing."
+                "description": "Provider API flavor. openai uses /chat/completions; ollama routes to native /api/chat; anthropic is reserved for future direct Anthropic routing."
               },
               "headers": {
                 "type": "object",
@@ -147,24 +185,73 @@
           "type": "array",
           "default": [
             {
-              "id": "gpt-4o-mini",
-              "name": "GPT-4o Mini",
-              "providerId": "openai",
-              "family": "gpt-4o",
-              "version": "gpt-4o-mini",
-              "maxInputTokens": 128000,
-              "supportsTools": true,
-              "supportsImages": true
-            },
-            {
-              "id": "qwen2.5-coder:14b",
-              "name": "Qwen Coder Local",
+              "id": "qwen3.5:9b",
+              "name": "Qwen3.5 9B",
               "providerId": "ollama",
               "family": "qwen",
-              "version": "qwen2.5-coder:14b",
-              "maxInputTokens": 32768,
+              "version": "qwen3.5:9b",
+              "maxInputTokens": 131072,
               "supportsTools": true,
-              "supportsImages": false
+              "supportsImages": true,
+              "context_length": 131072,
+              "max_tokens": 32768,
+              "temperature": 0.2,
+              "top_p": 0.95,
+              "top_k": 20,
+              "min_p": 0,
+              "presence_penalty": 0,
+              "enable_thinking": true,
+              "thinking_budget": 8192
+            },
+            {
+              "id": "deepseek-v4-flash",
+              "name": "DeepSeek V4 Flash",
+              "providerId": "deepseek",
+              "family": "deepseek",
+              "version": "deepseek-v4-flash",
+              "maxInputTokens": 1000000,
+              "maxOutputTokens": 384000,
+              "context_length": 1000000,
+              "supportsTools": true,
+              "supportsImages": false,
+              "thinking": {
+                "type": "enabled"
+              },
+              "thinkingFormat": "deepseek",
+              "reasoningContentFallback": true,
+              "reasoning_effort": "high",
+              "response_format": {
+                "type": "text"
+              },
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            },
+            {
+              "id": "deepseek-v4-pro",
+              "name": "DeepSeek V4 Pro",
+              "providerId": "deepseek",
+              "family": "deepseek",
+              "version": "deepseek-v4-pro",
+              "maxInputTokens": 1000000,
+              "maxOutputTokens": 384000,
+              "context_length": 1000000,
+              "supportsTools": true,
+              "supportsImages": false,
+              "thinking": {
+                "type": "enabled"
+              },
+              "thinkingFormat": "deepseek",
+              "reasoningContentFallback": true,
+              "reasoning_effort": "max",
+              "response_format": {
+                "type": "text"
+              },
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
             }
           ],
           "description": "Models exposed to Copilot Chat and the local proxy. Prefer providerId; legacy per-model baseUrl is still supported.",
@@ -201,6 +288,10 @@
                 "type": "number",
                 "default": 128000
               },
+              "maxOutputTokens": {
+                "type": "number",
+                "description": "Informational maximum output token limit advertised to VS Code."
+              },
               "supportsTools": {
                 "type": "boolean",
                 "default": true
@@ -208,6 +299,19 @@
               "supportsImages": {
                 "type": "boolean",
                 "default": false
+              },
+              "vision": {
+                "type": "boolean",
+                "description": "Compatibility alias for supportsImages."
+              },
+              "ollamaToolMode": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "prompt",
+                  "native"
+                ],
+                "description": "Per-model Ollama tool-call strategy override."
               },
               "headers": {
                 "type": "object",
@@ -217,6 +321,100 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Only send model, messages, stream, and tools/tool_choice. Useful for stricter OpenAI-compatible gateways."
+              },
+              "requestTimeoutSeconds": {
+                "type": "number",
+                "default": 300,
+                "minimum": 10,
+                "description": "Per-model upstream timeout. Useful for slow thinking/reasoning models."
+              },
+              "stream": {
+                "type": "boolean",
+                "description": "Per-model streaming override. When set, this overrides matrixOaiCopilot.stream."
+              },
+              "context_length": {
+                "type": "number",
+                "description": "Informational context length for OpenAI-compatible models."
+              },
+              "max_tokens": {
+                "type": "number",
+                "description": "Default output token limit sent to upstream requests when the client did not provide max_tokens."
+              },
+              "maxTokens": {
+                "type": "number",
+                "description": "Default output token limit sent to upstream requests when the client did not provide max_tokens."
+              },
+              "temperature": {
+                "type": "number",
+                "description": "Default temperature sent to upstream requests for this model."
+              },
+              "top_p": {
+                "type": "number",
+                "description": "Default top_p sent to upstream requests for this model."
+              },
+              "top_k": {
+                "type": "number",
+                "description": "Default top_k sent to upstream requests for this model."
+              },
+              "min_p": {
+                "type": "number",
+                "description": "Default min_p sent to upstream requests for this model."
+              },
+              "presence_penalty": {
+                "type": "number",
+                "description": "Default presence_penalty sent to upstream requests for this model."
+              },
+              "frequency_penalty": {
+                "type": "number",
+                "description": "Default frequency_penalty sent to upstream requests for this model."
+              },
+              "repeat_penalty": {
+                "type": "number",
+                "description": "Default repeat_penalty sent to upstream requests for this model."
+              },
+              "seed": {
+                "type": "number",
+                "description": "Default seed sent to upstream requests for this model."
+              },
+              "enable_thinking": {
+                "type": "boolean",
+                "description": "Default thinking toggle sent to upstream requests for models or gateways that support it."
+              },
+              "thinking_budget": {
+                "type": "number",
+                "description": "Default thinking token budget sent to upstream requests for models or gateways that support it."
+              },
+              "thinking": {
+                "type": "object",
+                "description": "Default thinking options sent to upstream requests for models or gateways that support them."
+              },
+              "reasoning_effort": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "max"
+                ],
+                "description": "Default reasoning effort sent to upstream requests for models or gateways that support it."
+              },
+              "stream_options": {
+                "type": "object",
+                "description": "Streaming options sent to upstream requests, for example {\"include_usage\": true}."
+              },
+              "thinkingFormat": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "deepseek",
+                  "always",
+                  "none"
+                ],
+                "default": "auto",
+                "description": "Controls hidden reasoning_content replay for providers that require it. auto enables it for DeepSeek-compatible models."
+              },
+              "reasoningContentFallback": {
+                "type": "boolean",
+                "default": true,
+                "description": "When reasoning_content cannot be recovered from VS Code history, send an empty reasoning_content on assistant tool-call turns for compatible providers."
               }
             }
           }
@@ -228,7 +426,7 @@
         },
         "matrixOaiCopilot.requestTimeoutSeconds": {
           "type": "number",
-          "default": 120,
+          "default": 300,
           "minimum": 10,
           "description": "Timeout for one upstream chat completion request."
         },
@@ -236,6 +434,44 @@
           "type": "boolean",
           "default": true,
           "description": "Ask upstream endpoints for streaming responses."
+        },
+        "matrixOaiCopilot.ollamaToolMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "prompt",
+            "native"
+          ],
+          "default": "auto",
+          "description": "Tool-call strategy for Ollama models. auto and native send Ollama's official tools field to /api/chat; prompt is a manual fallback for models with broken tool templates."
+        },
+        "matrixOaiCopilot.copilot.thinkingEffort": {
+          "type": "string",
+          "enum": [
+            "model",
+            "none",
+            "high",
+            "max"
+          ],
+          "default": "model",
+          "description": "Thinking effort override for DeepSeek models used through Copilot Chat. 'model' keeps the per-model configuration."
+        },
+        "matrixOaiCopilot.copilot.enableVisionProxy": {
+          "type": "boolean",
+          "default": true,
+          "description": "For text-only models in Copilot Chat, describe image inputs with another available image-capable VS Code language model before sending the request upstream."
+        },
+        "matrixOaiCopilot.copilot.visionProxyModel": {
+          "type": "string",
+          "default": "",
+          "description": "Optional image-description proxy model. Use matrix:<model-id> for Matrix OAI configured image models or vscode:<model-id> for VS Code language models. Empty prefers Matrix OAI image-capable models, then VS Code image-capable models."
+        },
+        "matrixOaiCopilot.copilot.visionProxyTimeoutSeconds": {
+          "type": "number",
+          "default": 45,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Timeout for one image-description request made by the Copilot vision proxy."
         },
         "matrixOaiCopilot.temperature": {
           "type": [
@@ -258,7 +494,7 @@
         },
         "matrixOaiCopilot.proxy.autoStart": {
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "matrixOaiCopilot.proxy.host": {
           "type": "string",
@@ -287,8 +523,19 @@
           "type": "number",
           "default": 120,
           "minimum": 10
+        },
+        "matrixOaiCopilot.balanceRefreshMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 999,
+          "description": "Minutes between automatic balance refreshes. Set in VS Code settings (matrixOaiCopilot.balanceRefreshMinutes)."
         }
       }
+    },
+    "configurationDefaults": {
+      "chat.exploreAgent.defaultModel": "DeepSeek V4 Pro (matrix-oai-compatible)",
+      "chat.customAgentInSubagent.enabled": true
     },
     "languageModelChatProviders": [
       {
