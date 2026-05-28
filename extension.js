@@ -8,7 +8,7 @@ const path = require('path');
 const vscode = require('vscode');
 
 const VENDOR = 'matrix-oai-compatible';
-const EXTENSION_VERSION = '0.2.35';
+const EXTENSION_VERSION = require('./package.json').version;
 const CONFIG_SECTION = 'matrixOaiCopilot';
 const GLOBAL_API_KEY = 'matrixOaiCopilot.globalApiKey';
 const STATS_KEY = 'matrixOaiCopilot.usageStats';

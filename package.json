@@ -2,10 +2,18 @@
   "name": "matrix-oai-compatible-copilot-provider",
   "displayName": "Matrix OAI Gateway for Copilot",
   "description": "OpenAI-compatible Copilot and VS Code language-model gateway with local proxy (Chat Completions + Responses API), usage telemetry, balance checking, and DeepSeek thinking-mode replay. / 支持本地代理(Chat Completions + Responses API)、用量统计、余额查询和 DeepSeek 思考模式回放的 OAI 网关。",
-  "version": "0.2.35",
+  "version": "0.2.36",
   "publisher": "matrix-oai-compatible-copilot-provider",
   "license": "MIT",
   "icon": "media/icon.png",
+  "homepage": "https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/issues"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.36 - 2026-05-28
+
+### English
+
+- Revamped Marketplace Overview README with badges, feature cards, screenshots, quick-start guide, and structured configuration tables.
+- Added `homepage`, `repository`, and `bugs` fields to `package.json` linking to GitHub.
+- Added 4 screenshots (model picker, config panel, status bar, balance check).
+
+### 中文
+
+- 全面重写 Marketplace Overview README：徽章、特性卡片、截图、快速上手指南、结构化配置表格。
+- `package.json` 新增 `homepage`、`repository`、`bugs` 字段，指向 GitHub 仓库。
+- 新增 4 张截图（模型选择器、配置面板、状态栏、余额查询）。
+
 ## 0.2.35 - 2026-05-28
 
 ### English

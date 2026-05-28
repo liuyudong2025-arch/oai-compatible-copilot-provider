@@ -1,88 +1,252 @@
-# Matrix OAI Gateway for Copilot
+<div align="center">
 
-Matrix OAI Gateway turns VS Code into a small OpenAI-compatible AI gateway.
+# 🌌 Matrix OAI Gateway for Copilot
 
-It has two directions:
+### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-- OAI Provider: expose OpenAI-compatible upstream models inside VS Code Chat and GitHub Copilot Chat.
-- Local Proxy: expose VS Code language models through local OpenAI-compatible and Anthropic-compatible HTTP APIs.
+[![Version](https://img.shields.io/badge/version-0.2.36-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 
-中文：Matrix OAI Gateway 可以把 OpenAI 兼容模型接入 VS Code / Copilot Chat，同时把 VS Code 里的语言模型反向暴露成本地 OpenAI / Anthropic 兼容接口。
+**No new sidebar. No new chat UI.** Just bring your own API key, pick your model, and keep using Copilot's agent mode, tool calling, and polished UI — powered by DeepSeek, Gemini, Claude, Qwen, GLM, Ollama, or any OpenAI-compatible provider.
 
-## Highlights
+[English](#features) · [中文](#功能一览)
 
-- Provider-based model config: define one provider, attach multiple models.
-- DeepSeek thinking-mode replay: preserves `reasoning_content` internally for tool-calling conversations.
-- Local proxy endpoints for OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and model listing.
-- Status bar telemetry with proxy port, latest context usage, requests, and errors.
-- Configuration webview with providers, models, endpoints, usage, latency, and context details.
-- Secret handling: API keys can be stored in VS Code Secret Storage; header display is redacted.
-- **Balance checking**: Query API key balance for supported providers (DeepSeek, OpenAI, OpenRouter, etc.). Balance appears in the status bar and auto-refreshes on startup and every 5 minutes.
+</div>
 
-中文功能：
+---
 
-- 支持 provider/model 分离配置。
-- 支持 DeepSeek 思考模式工具调用所需的 `reasoning_content` 内部回放。
-- 支持本地 `/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models` 代理接口。
-- 底部状态栏显示端口、最近上下文用量、请求数和错误数。
-- 配置页显示模型、接口、用量、延迟、上下文等信息。
-- API Key 可存入 VS Code Secret Storage，配置页会隐藏敏感 header。
-- **余额查询**：支持 DeepSeek、OpenAI、OpenRouter 等供应商的 API Key 余额查询。余额自动显示在状态栏，启动 30 秒后自动刷新，之后每 5 分钟刷新一次。
+## Why Matrix OAI Gateway?
 
-## Providers And Models
+Don't replace Copilot — **power it up**. This extension plugs directly into VS Code's language model provider API, so your custom models appear in the **same model picker** you already use every day. Agent mode, tool calling, Explore subagents, thinking mode — all preserved.
+
+> 💡 **Two-way gateway**: it also exposes a **local proxy** (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`), so external tools like Codex CLI, Continue, or curl can reach your models — or even VS Code's built-in Copilot models — through a single HTTP endpoint.
+
+---
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%">
+
+### 🤖 Copilot Chat Integration
+Models appear directly in the Copilot Chat model picker. Full support for:
+- **Agent mode** & tool calling
+- **Vision proxy** for text-only models
+- **Thinking / reasoning mode** (DeepSeek, etc.)
+- **Explore subagent** routing
+
+</td>
+<td width="50%">
+
+### 🔌 Local Proxy Server
+Expose models through standard OpenAI-compatible HTTP APIs:
+- `/v1/chat/completions`
+- `/v1/responses` (Codex CLI)
+- `/v1/messages` (Anthropic)
+- `/v1/models` & `/health`
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 💰 Balance & Usage Tracking
+- **7+ providers** supported (DeepSeek, OpenAI, OpenRouter, GLM, SiliconFlow, Groq, Mistral…)
+- Auto-refresh every N minutes in the status bar
+- Per-model latency, token usage, error count in the config panel
+
+</td>
+<td width="50%">
+
+### ⚡ One-Click Preset Models
+15+ preset models ready to go:
+- DeepSeek V4 Pro / Flash
+- GPT-4.1 / GPT-4o Mini
+- Gemini 2.5 Pro / Flash
+- Qwen, GLM, Kimi, Groq, Ollama…
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🧠 DeepSeek Thinking Mode
+Automatic `reasoning_content` replay for multi-turn tool-calling conversations. No more `invalid_request_error` when using DeepSeek reasoning models with Copilot Agent.
+
+</td>
+<td width="50%">
+
+### 🔐 Secure Key Management
+API keys stored in **VS Code Secret Storage**, never logged, never exposed in the config panel. Headers are auto-redacted in the UI.
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📸 Screenshots
+
+<img src="media/screenshot-model-picker.png" width="49%" alt="Copilot Chat Model Picker" /> <img src="media/screenshot-config.png" width="49%" alt="Configuration Panel" />
+
+<img src="media/screenshot-statusbar.png" width="49%" alt="Status Bar Telemetry" /> <img src="media/screenshot-balance.png" width="49%" alt="Balance Check" />
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install the extension
+
+Search **"Matrix OAI Gateway"** in the VS Code Extensions marketplace, or install from [VSIX](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider).
+
+### 2. Add a provider & set API key
+
+Open Command Palette (`Ctrl+Shift+P`):
+
+```
+Matrix OAI Gateway: Add Provider    → e.g. DeepSeek, https://api.deepseek.com/v1
+Matrix OAI Gateway: Set API Key     → paste your key
+```
+
+### 3. Add a model (or use presets)
+
+```
+Matrix OAI Gateway: Add Preset Model  → pick from 15+ presets
+Matrix OAI Gateway: Add Model         → custom model config
+```
+
+### 4. Start coding
+
+Open Copilot Chat → click the model picker → select your model → done! 🎉
+
+---
+
+## ⚙️ Configuration
+
+### Providers & Models
 
 Providers are reusable endpoints. Models reference providers by `providerId`, so one provider can host many models.
 
-```json
+```jsonc
+// settings.json
 "matrixOaiCopilot.providers": [
-  {
-    "id": "ollama",
-    "name": "Ollama Local",
-    "baseUrl": "http://localhost:11434/v1",
-    "apiMode": "ollama",
-    "headers": {}
-  },
   {
     "id": "deepseek",
     "name": "DeepSeek",
     "baseUrl": "https://api.deepseek.com/v1",
     "apiMode": "openai",
     "headers": {}
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama Local",
+    "baseUrl": "http://localhost:11434",
+    "apiMode": "ollama",
+    "headers": {}
   }
 ],
 "matrixOaiCopilot.models": [
+  {
+    "id": "deepseek-v4-pro",
+    "name": "DeepSeek V4 Pro",
+    "providerId": "deepseek",
+    "family": "deepseek",
+    "maxInputTokens": 1000000,
+    "supportsTools": true,
+    "thinking": { "type": "enabled" },
+    "thinkingFormat": "deepseek",
+    "reasoning_effort": "max"
+  },
   {
     "id": "qwen3.5:9b",
     "name": "Qwen3.5 9B",
     "providerId": "ollama",
     "family": "qwen",
     "maxInputTokens": 131072,
-    "max_tokens": 32768,
     "supportsTools": true,
     "supportsImages": true,
-    "temperature": 0.2,
-    "top_p": 0.95,
-    "top_k": 20,
     "enable_thinking": true,
     "thinking_budget": 8192
-  },
-  {
-    "id": "deepseek-chat",
-    "name": "DeepSeek Chat",
-    "providerId": "deepseek",
-    "family": "deepseek",
-    "maxInputTokens": 64000,
-    "supportsTools": true,
-    "supportsImages": false
   }
 ]
 ```
 
-## OpenAI Responses API Proxy
+### Key Settings
 
-The local proxy now supports the OpenAI Responses protocol (`/v1/responses`) used by OpenAI Codex CLI. When Codex CLI sends Responses API requests, the proxy translates them to standard Chat Completions (`/v1/chat/completions`) for any configured OAI-compatible provider, then translates the response back to the Responses format.
+| Setting | Default | Description |
+|---|---|---|
+| `matrixOaiCopilot.requestTimeoutSeconds` | `300` | Global upstream timeout |
+| `matrixOaiCopilot.stream` | `true` | Streaming responses |
+| `matrixOaiCopilot.logLevel` | `"info"` | Log verbosity: `off` / `error` / `info` / `debug` |
+| `matrixOaiCopilot.balanceRefreshMinutes` | `5` | Auto balance refresh interval |
+| `matrixOaiCopilot.copilot.thinkingEffort` | `"model"` | Thinking effort: `model` / `none` / `high` / `max` |
+| `matrixOaiCopilot.copilot.enableVisionProxy` | `true` | Describe images for text-only models |
+| `matrixOaiCopilot.proxy.autoStart` | `false` | Auto-start local proxy |
+| `matrixOaiCopilot.proxy.port` | `8080` | Proxy listen port |
 
-**Use case**: Point Codex CLI's custom provider to the Matrix OAI Gateway proxy:
+---
+
+## 💰 Balance Checking
+
+Query your API key balance directly from VS Code — no browser needed.
+
+**Supported providers:**
+
+| Provider | Currency | Auto-detect |
+|---|---|---|
+| **DeepSeek** | CNY | ✅ |
+| **OpenAI** | USD | ✅ |
+| **OpenRouter** | USD | ✅ |
+| **Zhipu GLM / BigModel** | tokens | ✅ |
+| **SiliconFlow** | CNY | ✅ |
+| **Groq** | — | ✅ |
+| **Mistral** | EUR / USD | ✅ |
+
+**How to use:**
+
+1. Command Palette → `Matrix OAI Gateway: Check API Balance`
+2. Select a provider → enter API key (if not stored)
+3. View balance in the status bar 🟢
+
+Balance auto-refreshes after startup (30s delay) and every N minutes. The status bar shows a provider prefix (`DS:`, `GLM:`, `OR:`) so you know whose balance is displayed.
+
+---
+
+## 🧠 DeepSeek Thinking Mode
+
+DeepSeek reasoning models need `reasoning_content` passed back in tool-calling turns. VS Code hides this field, so this extension:
+
+- Stores `reasoning_content` in memory between turns
+- Reattaches it automatically before upstream calls
+- Falls back to empty `reasoning_content` when the original text can't be recovered
+
+**Model options:**
+
+| Option | Values | Description |
+|---|---|---|
+| `thinkingFormat` | `auto` / `deepseek` / `always` / `none` | Controls reasoning replay |
+| `reasoningContentFallback` | `true` / `false` | Send empty reasoning on missing turns |
+| `reasoning_effort` | `high` / `max` | Thinking depth for DeepSeek V4 |
+
+---
+
+## 🔌 Local Proxy
+
+When enabled, the proxy listens at `http://127.0.0.1:8080`:
+
+| Endpoint | Protocol |
+|---|---|
+| `POST /v1/chat/completions` | OpenAI Chat Completions |
+| `POST /v1/responses` | OpenAI Responses (Codex CLI) |
+| `POST /v1/messages` | Anthropic Messages |
+| `GET /v1/models` | Model listing |
+| `GET /health` | Health check |
+
+**Routing logic:** If `model` matches a configured OAI model → upstream provider. Otherwise → VS Code language model (e.g. Copilot).
+
+### Codex CLI Example
 
 ```toml
 # ~/.codex/config.toml
@@ -97,129 +261,123 @@ model_provider = "deepseek"
 model = "deepseek-v4-pro"
 ```
 
-中文：本地代理现已支持 OpenAI Responses 协议（`/v1/responses`），Codex CLI 发起的 Responses 请求会被自动翻译为标准 Chat Completions 请求转发到上游 OAI 兼容模型，并将响应翻译回 Responses 格式。
+---
 
-Legacy model-level `baseUrl` still works, but new configs should use `providers`.
+## 🤖 Copilot Explore Subagents
 
-## DeepSeek Thinking Mode
+GitHub Copilot Agent starts an internal Explore subagent for code search. This extension defaults it to your OAI model so it doesn't fall back to Copilot built-in models:
 
-Some DeepSeek-compatible thinking models require the assistant `reasoning_content` to be passed back in later tool-calling turns. VS Code does not expose that hidden field as visible text, so this extension stores it in memory and reattaches it to matching assistant messages before calling the upstream API.
-
-中文：DeepSeek 思考模式在工具调用多轮对话里可能要求把上一轮 assistant 的 `reasoning_content` 回传。本扩展会把这个隐藏字段保存在内存里，并在后续请求里自动补回，避免 `invalid_request_error`。
-
-Model options:
-
-- `thinkingFormat`: `auto`, `deepseek`, `always`, or `none`.
-- `reasoningContentFallback`: send empty `reasoning_content` for assistant tool-call turns when the exact hidden reasoning text cannot be recovered.
-
-## Copilot Explore Subagents
-
-GitHub Copilot Agent can start an internal Explore subagent for code search and file review. VS Code exposes a setting for that model, and this extension contributes defaults so Explore keeps using the OAI model instead of falling back to a Copilot built-in model:
-
-```json
+```jsonc
+// Auto-configured by the extension
 "chat.exploreAgent.defaultModel": "DeepSeek V4 Pro (matrix-oai-compatible)",
 "chat.customAgentInSubagent.enabled": true
 ```
 
-中文：Copilot Agent 在搜索和阅读代码时会启动内置 Explore 子代理。本扩展会默认把 Explore 子代理模型设置为 DeepSeek V4 Pro，避免子任务自动切回 GPT-4.1。
+---
 
-## Local Proxy
+## 🎯 Preset Models (One-Click Setup)
 
-When the proxy is running:
+| Provider | Model | Context | Tools | Vision |
+|---|---|---|---|---|
+| OpenAI | GPT-4.1 | 1M | ✅ | ✅ |
+| OpenAI | GPT-4o Mini | 128K | ✅ | ✅ |
+| DeepSeek | Chat / Reasoner | 64K | ✅ | — |
+| Google Gemini | 2.5 Pro / Flash | 1M | ✅ | ✅ |
+| Qwen DashScope | Qwen Plus | 128K | ✅ | — |
+| Zhipu GLM | GLM-4 Plus | 128K | ✅ | — |
+| OpenRouter | Custom Model | 128K | ✅ | — |
+| Groq | Llama 3.3 70B | 128K | ✅ | — |
+| Ollama | Qwen Coder 14B | 32K | ✅ | — |
+| LM Studio | Local Model | 32K | — | — |
+| Moonshot | Kimi 8K | 8K | ✅ | — |
 
-- OpenAI Chat Completions: `http://127.0.0.1:8080/v1/chat/completions`
-- OpenAI Responses: `http://127.0.0.1:8080/v1/responses`
-- Anthropic Messages: `http://127.0.0.1:8080/v1/messages`
-- Models: `http://127.0.0.1:8080/v1/models`
-- Health: `http://127.0.0.1:8080/health`
+---
 
-If the requested `model` matches a configured OAI model, the proxy routes to that upstream provider. Otherwise it tries to route to an available VS Code language model, such as Copilot models.
+## 📋 Commands
 
-中文：如果请求里的 `model` 命中已配置的 OAI 模型，会转发到对应上游；否则会尝试匹配 VS Code 中可用的语言模型。
+| Command | Description |
+|---|---|
+| `Matrix OAI Gateway: Configuration` | Open the config webview panel |
+| `Matrix OAI Gateway: Add Provider` | Add a new upstream provider |
+| `Matrix OAI Gateway: Add Preset Model` | Pick from 15+ preset models |
+| `Matrix OAI Gateway: Add Model` | Add a custom model config |
+| `Matrix OAI Gateway: Set API Key` | Store an API key securely |
+| `Matrix OAI Gateway: Clear API Key` | Remove a stored API key |
+| `Matrix OAI Gateway: Refresh Models` | Re-register models with VS Code |
+| `Matrix OAI Gateway: Start Proxy` | Start the local proxy server |
+| `Matrix OAI Gateway: Stop Proxy` | Stop the local proxy server |
+| `Matrix OAI Gateway: Restart Proxy` | Restart the local proxy server |
+| `Matrix OAI Gateway: Show Output` | Open the output log channel |
+| `Matrix OAI Gateway: Open Settings` | Jump to extension settings |
+| `Matrix OAI Gateway: Set Copilot Thinking Effort` | Override thinking mode |
+| `Matrix OAI Gateway: Set Vision Proxy Model` | Choose image-description model |
+| `Matrix OAI Gateway: Reset Usage` | Reset usage statistics |
+| `Matrix OAI Gateway: Check API Balance` | Query API key balance |
+| `Matrix OAI Gateway: Write Codex Config` | Generate Codex CLI config |
 
-## Commands
+---
 
-- `Matrix OAI Gateway: Configuration`
-- `Matrix OAI Gateway: Add Provider`
-- `Matrix OAI Gateway: Add Preset Model`
-- `Matrix OAI Gateway: Add Model`
-- `Matrix OAI Gateway: Set API Key`
-- `Matrix OAI Gateway: Clear API Key`
-- `Matrix OAI Gateway: Refresh Models`
-- `Matrix OAI Gateway: Start Proxy`
-- `Matrix OAI Gateway: Stop Proxy`
-- `Matrix OAI Gateway: Restart Proxy`
-- `Matrix OAI Gateway: Show Output`
-- `Matrix OAI Gateway: Open Settings`
-- `Matrix OAI Gateway: Reset Usage`
-- `Matrix OAI Gateway: Check API Balance`
+## ⏱️ Timeouts & Streaming
 
-## Balance Checking
+Slow reasoning models may need longer timeouts. Configure globally or per-model:
 
-Query your API key balance for supported providers directly from VS Code.
+```jsonc
+"matrixOaiCopilot.requestTimeoutSeconds": 300,  // global default
 
-**Supported providers:**
+// Per-model override:
+"matrixOaiCopilot.models": [
+  {
+    "id": "deepseek-reasoner",
+    "requestTimeoutSeconds": 600,  // 10 min for thinking models
+    "stream": true,
+    "stream_options": { "include_usage": true }
+  }
+]
+```
 
-| Provider | Balance Endpoint | Currency |
-|---|---|---|
-| DeepSeek | `GET /user/balance` | CNY |
-| OpenAI | `GET /v1/organization/balance` | USD |
-| OpenRouter | `GET /v1/auth/key` | USD |
-| Zhipu GLM / BigModel | `GET /api/monitor/usage/quota/limit` | tokens |
+---
 
-**How to use:**
-
-1. Open the Command Palette (`Ctrl+Shift+P`)
-2. Run `Matrix OAI Gateway: Check API Balance`
-3. Select a supported provider
-4. Enter your API key if not stored yet
-
-You can also click the **Check Balance** button on the configuration panel.
-
-**Auto-refresh**: The extension automatically checks balance 30 seconds after startup and every 5 minutes thereafter. The balance appears in the status bar. Configure the interval with `matrixOaiCopilot.balanceRefreshMinutes` (default: 5, minimum: 1).
-
-中文：扩展启动 30 秒后自动查询余额，之后每 5 分钟刷新一次，结果直接显示在状态栏。可在设置 `matrixOaiCopilot.balanceRefreshMinutes` 调整刷新间隔（默认 5 分钟）。
-
-The result shows:
-- ✅ Account active or ❌ unavailable
-- Total balance and currency
-- Granted vs topped-up amounts (when applicable)
-
-中文：在 VS Code 中直接查询支持的供应商 API Key 余额。
-
-支持：DeepSeek、OpenAI、OpenRouter。可以通过命令面板或配置页的「Check Balance」按钮使用。
-
-The status bar shows:
-
-- proxy state and port
-- **API balance** (after first successful query, auto-refreshed every 5 minutes)
-- latest request context usage
-- total request count
-- total error count
-
-The configuration webview shows request count, errors, reported or estimated input/output tokens, context usage, and average latency per model.
-
-Logs go to the `Matrix OAI Gateway` Output channel. Set `matrixOaiCopilot.logLevel` to `off`, `error`, `info`, or `debug`.
-
-中文：底部状态栏会显示代理端口、最近上下文占用、请求数和错误数。配置页会显示模型级用量、错误、上下文、延迟等细节。
-
-## Timeouts And Streaming
-
-Slow thinking models can take longer than normal chat models. The global upstream timeout is controlled by `matrixOaiCopilot.requestTimeoutSeconds`; an individual model can override it with `requestTimeoutSeconds`.
-
-Set model-level `stream: false` when a provider is more stable with JSON responses than SSE streaming.
-
-中文：慢思考模型可能超过普通聊天模型的等待时间。可以用 `matrixOaiCopilot.requestTimeoutSeconds` 设置全局超时，也可以在单个模型里用 `requestTimeoutSeconds` 覆盖。若某个供应商非流式更稳定，可以在模型里设置 `stream: false`。
-
-## Compatibility
+## 🔧 Compatibility
 
 This extension supports:
 
-- upstream models reachable through OpenAI-compatible `/chat/completions`
-- VS Code language models available through `vscode.lm`
-- OpenAI-compatible proxy clients
-- basic Anthropic Messages clients
+- ✅ Any OpenAI-compatible `/chat/completions` endpoint
+- ✅ Ollama native `/api/chat` (with tool-call support)
+- ✅ VS Code language models via `vscode.lm`
+- ✅ OpenAI-compatible proxy clients (curl, Continue, etc.)
+- ✅ OpenAI Responses protocol (Codex CLI)
+- ✅ Basic Anthropic Messages clients
 
-Tool calling, image input, reasoning options, and token usage depend on the upstream model and gateway.
+Tool calling, image input, reasoning options, and token usage depend on the upstream model.
 
-中文：工具调用、图片输入、思考模式参数和真实 token 用量取决于具体上游模型和网关。
+---
+
+## 📄 License
+
+[MIT](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
+
+---
+
+<div align="center">
+
+**Enjoying Matrix OAI Gateway?** ⭐ [Star on GitHub](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider) · 🐛 [Report Issues](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/issues)
+
+</div>
+
+---
+
+## 功能一览
+
+Matrix OAI Gateway 可以把任意 OpenAI 兼容模型接入 VS Code / Copilot Chat，同时把 VS Code 里的语言模型反向暴露成本地 OpenAI / Anthropic 兼容接口。
+
+**核心特性：**
+
+- 🤖 **Copilot Chat 无缝集成** — 模型直接出现在 Copilot 模型选择器里，支持 Agent 模式、工具调用、Vision 代理、思考模式
+- 🔌 **本地代理服务器** — 暴露 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 接口，支持 Codex CLI、Continue、curl 等外部工具
+- 💰 **余额查询** — 支持 DeepSeek、OpenAI、OpenRouter、智谱 GLM、SiliconFlow、Groq、Mistral 等 7+ 供应商，状态栏自动刷新
+- 🧠 **DeepSeek 思考模式** — 自动回放 `reasoning_content`，解决工具调用多轮对话的 `invalid_request_error`
+- ⚡ **一键预设模型** — 15+ 预设模型（DeepSeek V4、GPT-4.1、Gemini 2.5、Qwen、GLM、Kimi、Groq、Ollama…）
+- 🔐 **安全密钥管理** — API Key 存入 VS Code Secret Storage，永不记录日志，配置页自动脱敏
+- 📊 **用量统计** — 状态栏显示端口、余额、上下文用量、请求数、错误数；配置页显示模型级延迟和 token 用量
+- 🤖 **Explore 子代理** — 自动将 Copilot Explore 子代理路由到你的 OAI 模型，避免回退到 GPT-4.1
+- 🖼️ **Vision 代理** — 文本模型也可以处理图片，自动用另一个视觉模型描述图片内容
