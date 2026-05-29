@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.38 - 2026-05-29
+
+### English
+
+- Added Prompt Cache monitoring: DeepSeek's `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` (also `prompt_tokens_details.cached_tokens` for OpenAI-compatible) are now extracted, logged, and shown in the status bar tooltip with hit rate percentage.
+- Status bar tooltip now shows per-request and session-level cache statistics.
+
+### 中文
+
+- 新增 Prompt Cache 监控：提取 DeepSeek 的 `prompt_cache_hit_tokens` 和 `prompt_cache_miss_tokens`（也支持 OpenAI 兼容的 `prompt_tokens_details.cached_tokens`），输出日志并在状态栏 tooltip 展示命中率。
+- 状态栏 tooltip 现在展示每次请求和会话级别的缓存统计。
+
+## 0.2.37 - 2026-05-29
+
+### English
+
+- Added image description cache for the vision proxy. Previously, the same image was re-described on every Copilot turn because VS Code sends the full message history (including all prior images) on each request. Now a SHA-256–keyed LRU cache (max 100 entries) stores descriptions after the first call, so repeated images are served from cache.
+- This eliminates redundant vision proxy calls and significantly reduces latency and token cost in multi-turn conversations with images.
+
+### 中文
+
+- 为视觉代理增加图片描述缓存。之前每轮 Copilot 对话都会重新描述所有历史图片（因为 VS Code 每轮都会发送完整消息历史），现在使用基于 SHA-256 的 LRU 缓存（上限 100 条），同一张图片只在首次遇到时调用视觉代理。
+- 消除了重复的视觉代理请求，大幅降低包含图片的多轮对话的延迟和 token 开销。
+
 ## 0.2.36 - 2026-05-28
 
 ### English

@@ -189,6 +189,8 @@ let sessionStats;
 let cachedBalance = null;
 let balanceTimer;
 const reasoningCache = new Map();
+const MAX_IMAGE_DESC_CACHE_ENTRIES = 100;
+const imageDescriptionCache = new Map();
 
 function preset(label, id, name, baseUrl, providerId, family, maxInputTokens, supportsTools, supportsImages) {
   return {
@@ -364,6 +366,7 @@ class OaiCompatibleChatProvider {
       }
 
       recordUsage(config.id, 'oai-provider', result.usage, result.completionText.length, Date.now() - startedAt, config.providerId);
+      logCacheMetrics(result.usage, config.name || config.id, Date.now() - startedAt);
       logDebug(`Provider request finished: ${config.name || config.id} in ${Date.now() - startedAt}ms. ${formatResultShape(result)}`);
     } catch (error) {
       recordError(config.id, 'oai-provider');
@@ -756,6 +759,13 @@ async function describeImagesForTextModel(messages) {
 }
 
 async function describeImagePart(part) {
+  const cacheKey = imageDescriptionCacheKey(part);
+  const cached = imageDescriptionCache.get(cacheKey);
+  if (cached !== undefined) {
+    logDebug(`Vision proxy cache hit for image (${cacheKey.slice(0, 12)}...).`);
+    return cached;
+  }
+
   const target = await selectVisionProxyTarget();
   if (!target) {
     logInfo('Vision proxy requested, but no image-capable Matrix OAI or VS Code model is available.');
@@ -764,22 +774,35 @@ async function describeImagePart(part) {
 
   try {
     logInfo(`Vision proxy describing image with ${target.value} (${target.label}).`);
+    let description;
     if (target.kind === 'configured-oai') {
-      return await describeImageWithConfiguredModel(target.model, part);
+      description = await describeImageWithConfiguredModel(target.model, part);
+    } else {
+      description = await describeImageWithVsCodeModel(target.model, part);
     }
 
-    return await describeImageWithVsCodeModel(target.model, part);
+    imageDescriptionCache.set(cacheKey, description);
+    while (imageDescriptionCache.size > MAX_IMAGE_DESC_CACHE_ENTRIES) {
+      const firstKey = imageDescriptionCache.keys().next().value;
+      imageDescriptionCache.delete(firstKey);
+    }
+    return description;
   } catch (error) {
     logError(`Vision proxy failed with ${target.value}`, error);
     return `Image input was provided, but the configured vision proxy failed: ${error.message || String(error)}`;
   }
 }
 
+function imageDescriptionCacheKey(part) {
+  const bytes = part.data instanceof Uint8Array ? part.data : new Uint8Array(part.data);
+  return crypto.createHash('sha256').update(bytes).digest('hex');
+}
+
 async function describeImageWithVsCodeModel(model, part) {
   let text = '';
   const timeoutSeconds = getConfig().get('copilot.visionProxyTimeoutSeconds', 45);
   const message = new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, [
-    new vscode.LanguageModelTextPart('Describe this image for another coding assistant. Be factual, concise, and include any visible text, UI state, error messages, file names, and code fragments.'),
+    new vscode.LanguageModelTextPart('Describe concisely for a coding assistant: text, UI state, errors, filenames, code.'),
     part
   ]);
   await withTimeout(
@@ -815,7 +838,7 @@ async function describeImageWithConfiguredModel(model, part) {
       content: [
         {
           type: 'text',
-          text: 'Describe this image for another coding assistant. Be factual, concise, and include any visible text, UI state, error messages, file names, and code fragments.'
+          text: 'Describe concisely for a coding assistant: text, UI state, errors, filenames, code.'
         },
         image
       ]
@@ -4828,11 +4851,25 @@ function statusBarTooltip(stats, port) {
   }
 
   if (last) {
+    const cacheHit = last.cacheHitTokens || 0;
+    const cacheMiss = last.cacheMissTokens || 0;
+    const totalCache = cacheHit + cacheMiss;
+    const cacheLine = totalCache > 0
+      ? `Last cache: ${formatNumber(cacheHit)} hit / ${formatNumber(cacheMiss)} miss (${Math.round((cacheHit / totalCache) * 100)}%)`
+      : 'Last cache: N/A';
     lines.push(
       `Last model: ${last.modelId}`,
       `Last context: ${formatContextUsage(last.totalTokens, last.contextLimit)}`,
+      cacheLine,
       `Last latency: ${Math.round(last.latencyMs || 0)}ms`
     );
+  }
+
+  const totalHit = stats.cacheHitTokens || 0;
+  const totalMiss = stats.cacheMissTokens || 0;
+  const totalCacheAll = totalHit + totalMiss;
+  if (totalCacheAll > 0) {
+    lines.push(`Session cache: ${formatNumber(totalHit)} hit / ${formatNumber(totalMiss)} miss (${Math.round((totalHit / totalCacheAll) * 100)}%)`);
   }
 
   lines.push('Click to open configuration.');
@@ -4910,6 +4947,8 @@ function createStats() {
     completionTokens: 0,
     totalTokens: 0,
     totalLatencyMs: 0,
+    cacheHitTokens: 0,
+    cacheMissTokens: 0,
     lastRequest: undefined,
     byModel: {}
   };
@@ -4933,6 +4972,8 @@ function mergeStats(a, b) {
     merged.completionTokens += stats.completionTokens || 0;
     merged.totalTokens += stats.totalTokens || 0;
     merged.totalLatencyMs += stats.totalLatencyMs || 0;
+    merged.cacheHitTokens += stats.cacheHitTokens || 0;
+    merged.cacheMissTokens += stats.cacheMissTokens || 0;
     if (isNewerLastRequest(stats.lastRequest, merged.lastRequest)) {
       merged.lastRequest = stats.lastRequest;
     }
@@ -4944,6 +4985,8 @@ function mergeStats(a, b) {
       target.completionTokens += row.completionTokens || 0;
       target.totalTokens += row.totalTokens || 0;
       target.totalLatencyMs += row.totalLatencyMs || 0;
+      target.cacheHitTokens += row.cacheHitTokens || 0;
+      target.cacheMissTokens += row.cacheMissTokens || 0;
       target.source = row.source || target.source;
       merged.byModel[model] = target;
     }
@@ -4969,7 +5012,9 @@ function emptyModelStats(source) {
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
-    totalLatencyMs: 0
+    totalLatencyMs: 0,
+    cacheHitTokens: 0,
+    cacheMissTokens: 0
   };
 }
 
@@ -4985,11 +5030,15 @@ function recordUsage(modelId, source, usage, completionChars, latencyMs, provide
 
 function applyUsage(stats, modelId, source, usage, latencyMs, providerId) {
   const resolvedProviderId = providerId || findConfiguredModel(modelId)?.providerId || '';
+  const cacheHit = usage.prompt_cache_hit_tokens || 0;
+  const cacheMiss = usage.prompt_cache_miss_tokens || 0;
   stats.requests += 1;
   stats.promptTokens += usage.prompt_tokens;
   stats.completionTokens += usage.completion_tokens;
   stats.totalTokens += usage.total_tokens;
   stats.totalLatencyMs += latencyMs || 0;
+  stats.cacheHitTokens += cacheHit;
+  stats.cacheMissTokens += cacheMiss;
   stats.lastRequest = {
     at: new Date().toISOString(),
     modelId,
@@ -4999,7 +5048,9 @@ function applyUsage(stats, modelId, source, usage, latencyMs, providerId) {
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
     latencyMs: latencyMs || 0,
-    contextLimit: contextLimitForModel(modelId)
+    contextLimit: contextLimitForModel(modelId),
+    cacheHitTokens: cacheHit,
+    cacheMissTokens: cacheMiss
   };
 
   const row = stats.byModel[modelId] || emptyModelStats(source);
@@ -5010,6 +5061,8 @@ function applyUsage(stats, modelId, source, usage, latencyMs, providerId) {
   row.completionTokens += usage.completion_tokens;
   row.totalTokens += usage.total_tokens;
   row.totalLatencyMs += latencyMs || 0;
+  row.cacheHitTokens += cacheHit;
+  row.cacheMissTokens += cacheMiss;
   stats.byModel[modelId] = row;
 }
 
@@ -5033,11 +5086,26 @@ function applyError(stats, modelId, source) {
 function normalizeUsage(usage, completionChars) {
   const prompt = Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0);
   const completion = Number(usage?.completion_tokens ?? usage?.output_tokens ?? estimateTokens('x'.repeat(completionChars || 0)));
+  const cacheHit = Number(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0);
+  const cacheMiss = Number(usage?.prompt_cache_miss_tokens ?? 0);
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
-    total_tokens: Number(usage?.total_tokens ?? prompt + completion)
+    total_tokens: Number(usage?.total_tokens ?? prompt + completion),
+    prompt_cache_hit_tokens: cacheHit,
+    prompt_cache_miss_tokens: cacheMiss
   };
+}
+
+function logCacheMetrics(usage, modelLabel, latencyMs) {
+  if (!usage) return;
+  const cacheHit = Number(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0);
+  const cacheMiss = Number(usage?.prompt_cache_miss_tokens ?? 0);
+  const totalPrompt = cacheHit + cacheMiss;
+  if (totalPrompt > 0) {
+    const hitRate = Math.round((cacheHit / totalPrompt) * 100);
+    logInfo(`Cache metrics for ${modelLabel}: hit=${formatNumber(cacheHit)} miss=${formatNumber(cacheMiss)} rate=${hitRate}% latency=${latencyMs}ms`);
+  }
 }
 
 async function resetUsageStats() {
