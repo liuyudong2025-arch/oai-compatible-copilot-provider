@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.40 - 2026-05-29
+
+### English
+
+- Updated README.md version badge to match package version.
+
+### 中文
+
+- 更新 README.md 版本徽章与实际包版本同步。
+
+## 0.2.39 - 2026-05-29
+
+### English
+
+- **Tool definitions sorted alphabetically** by name for deterministic JSON serialization, improving DeepSeek prefix cache hit rate across sessions when the same MCP tools are registered.
+- **Vision description cache persisted** to `globalState` so the same image gets the identical description text across VS Code restarts, further improving prefix cache consistency.
+- **JSON body key ordering optimized**: `tools` placed before `messages` in the request body so stable content precedes variable content.
+- Tool definitions and message payload size logging changed from `INFO` to `DEBUG` level to reduce log noise.
+
+### 中文
+
+- **工具定义按名称字母排序**，确保 JSON 序列化结果确定一致，提升 DeepSeek prefix cache 在相同 MCP 工具集下的跨会话命中率。
+- **视觉描述缓存持久化**到 `globalState`，同一张图片跨 VS Code 重启返回完全相同的描述文本，进一步提升 prefix cache 一致性。
+- **JSON body 键顺序优化**：`tools` 放在 `messages` 前面，稳定内容排在可变内容之前。
+- 工具定义和消息载荷大小的日志从 `INFO` 级别改为 `DEBUG` 级别，减少日志噪音。
+
 ## 0.2.38 - 2026-05-29
 
 ### English

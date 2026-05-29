@@ -4,7 +4,7 @@
 
 ### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-[![Version](https://img.shields.io/badge/version-0.2.36-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![Version](https://img.shields.io/badge/version-0.2.40-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 

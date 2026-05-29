@@ -190,7 +190,42 @@ let cachedBalance = null;
 let balanceTimer;
 const reasoningCache = new Map();
 const MAX_IMAGE_DESC_CACHE_ENTRIES = 100;
+const VISION_CACHE_KEY = 'matrixOaiCopilot.visionCache';
 const imageDescriptionCache = new Map();
+
+function loadVisionCache() {
+  try {
+    const stored = extensionContext?.globalState?.get(VISION_CACHE_KEY, {});
+    if (stored && typeof stored === 'object') {
+      const entries = Object.entries(stored);
+      // Keep only the most recent MAX entries (last N by insertion order)
+      const recent = entries.slice(-MAX_IMAGE_DESC_CACHE_ENTRIES);
+      for (const [key, value] of recent) {
+        imageDescriptionCache.set(key, value);
+      }
+      if (entries.length > 0) {
+        logInfo(`Vision cache: loaded ${recent.length} persisted descriptions.`);
+      }
+    }
+  } catch (e) {
+    logDebug('Failed to load vision cache from globalState', e);
+  }
+}
+
+function persistVisionCache() {
+  try {
+    const obj = {};
+    // Keep only last MAX entries
+    const entries = [...imageDescriptionCache.entries()];
+    const recent = entries.slice(-MAX_IMAGE_DESC_CACHE_ENTRIES);
+    for (const [key, value] of recent) {
+      obj[key] = value;
+    }
+    extensionContext?.globalState?.update(VISION_CACHE_KEY, obj);
+  } catch (e) {
+    logDebug('Failed to persist vision cache', e);
+  }
+}
 
 function preset(label, id, name, baseUrl, providerId, family, maxInputTokens, supportsTools, supportsImages) {
   return {
@@ -213,6 +248,7 @@ function activate(context) {
   extensionContext = context;
   sessionStats = createStats();
   output = vscode.window.createOutputChannel('Matrix OAI Gateway');
+  loadVisionCache();
 
   if (!vscode.lm?.registerLanguageModelChatProvider) {
     vscode.window.showErrorMessage('Matrix OAI Gateway requires a VS Code build with LanguageModelChatProvider support.');
@@ -344,6 +380,13 @@ class OaiCompatibleChatProvider {
       messages: request.messages.length,
       tools: Array.isArray(request.tools) ? request.tools.length : 0
     });
+    if (Array.isArray(request.tools) && request.tools.length > 0) {
+      const toolSizes = request.tools.map(t => `${t.function?.name || '?'}(${JSON.stringify(t).length}ch)`).join(', ');
+      const totalChars = request.tools.reduce((s, t) => s + JSON.stringify(t).length, 0);
+      logDebug(`Tool definitions: ${request.tools.length} tools, ${formatNumber(totalChars)} chars total. Sizes: ${toolSizes}`);
+    }
+    const msgChars = request.messages.reduce((s, m) => s + JSON.stringify(m).length, 0);
+    logDebug(`Message payload: ${request.messages.length} messages, ${formatNumber(msgChars)} chars total.`);
 
     try {
       let result = await sendOaiUpstream(config, apiKey, request, {
@@ -614,9 +657,10 @@ function secretKeyFor(model) {
 }
 
 function buildChatRequest(config, messages, options) {
+  // Build body with stable keys (model, tools) BEFORE variable keys (messages)
+  // so that tools become part of the JSON prefix that DeepSeek can cache across turns.
   const body = {
     model: config.id,
-    messages: convertVsCodeMessagesToOpenAi(messages, config),
     stream: getConfig().get('stream', true)
   };
 
@@ -625,6 +669,9 @@ function buildChatRequest(config, messages, options) {
     body.tools = tools;
     body.tool_choice = 'auto';
   }
+
+  // Messages go LAST — they change every turn, so anything after them would miss cache.
+  body.messages = convertVsCodeMessagesToOpenAi(messages, config);
 
   if (!config.omitUnsupportedParameters) {
     const temperature = options?.modelOptions?.temperature ?? getConfig().get('temperature', null);
@@ -786,6 +833,9 @@ async function describeImagePart(part) {
       const firstKey = imageDescriptionCache.keys().next().value;
       imageDescriptionCache.delete(firstKey);
     }
+    // Persist to globalState so the same image gets the same description across sessions
+    persistVisionCache();
+    logInfo(`Vision proxy description result (${cacheKey.slice(0, 12)}..., ${description.length} chars, cached persistently): ${description.slice(0, 500)}`);
     return description;
   } catch (error) {
     logError(`Vision proxy failed with ${target.value}`, error);
@@ -1195,8 +1245,12 @@ function convertTools(tools) {
     return [];
   }
 
+  // Sort by name so the JSON serialization is deterministic across sessions,
+  // improving DeepSeek prefix cache hit rate when the same tools are registered
+  // but in a different order.
   return tools
     .filter((tool) => tool && tool.name)
+    .sort((a, b) => a.name.localeCompare(b.name))
     .map((tool) => ({
       type: 'function',
       function: {
@@ -5106,6 +5160,7 @@ function logCacheMetrics(usage, modelLabel, latencyMs) {
     const hitRate = Math.round((cacheHit / totalPrompt) * 100);
     logInfo(`Cache metrics for ${modelLabel}: hit=${formatNumber(cacheHit)} miss=${formatNumber(cacheMiss)} rate=${hitRate}% latency=${latencyMs}ms`);
   }
+  logInfo(`Usage detail for ${modelLabel}: ${JSON.stringify(usage)}`);
 }
 
 async function resetUsageStats() {
