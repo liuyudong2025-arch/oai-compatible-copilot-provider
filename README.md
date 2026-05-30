@@ -4,7 +4,7 @@
 
 ### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-[![Version](https://img.shields.io/badge/version-0.2.40-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![Version](https://img.shields.io/badge/version-0.3.2-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 
@@ -185,6 +185,8 @@ Providers are reusable endpoints. Models reference providers by `providerId`, so
 | `matrixOaiCopilot.copilot.enableVisionProxy` | `true` | Describe images for text-only models |
 | `matrixOaiCopilot.proxy.autoStart` | `false` | Auto-start local proxy |
 | `matrixOaiCopilot.proxy.port` | `8080` | Proxy listen port |
+| `matrixOaiCopilot.proxy.anthropicModelMapping` | `{}` | Claude model name → upstream model ID (Claude Code) |
+| `matrixOaiCopilot.proxy.codexModelMapping` | `{}` | Alias model name → configured model ID (Codex/OpenAI) |
 
 ---
 
@@ -261,6 +263,32 @@ model_provider = "deepseek"
 model = "deepseek-v4-pro"
 ```
 
+Or use the one-click command: `Matrix OAI Gateway: Write Codex Config`
+
+### Claude Code Example
+
+Claude Code can use non-Claude models through the Anthropic API passthrough:
+
+1. Add Anthropic provider + model (or use presets):
+```jsonc
+"matrixOaiCopilot.providers": [{ "id": "deepseek-anthropic", "baseUrl": "https://api.deepseek.com/anthropic", "apiMode": "anthropic" }],
+"matrixOaiCopilot.models": [{ "id": "deepseek-v4-pro-anthr", "providerId": "deepseek-anthropic", "upstreamModelId": "deepseek-v4-pro" }]
+```
+2. Set model mapping:
+```jsonc
+"matrixOaiCopilot.proxy.anthropicModelMapping": {
+  "claude-sonnet-4-20250514": "deepseek-v4-pro-anthr"
+}
+```
+3. Run `Matrix OAI Gateway: Write Claude Code Config` → writes `~/.claude/settings.json`
+4. Claude Code will now use DeepSeek V4 Pro behind the scenes!
+
+### Model Mapping
+
+Both Codex and Claude Code support model name mapping:
+- **`proxy.codexModelMapping`**: `{ "o3": "deepseek-v4-pro" }` — Codex sends `o3`, routes to DeepSeek
+- **`proxy.anthropicModelMapping`**: `{ "claude-sonnet-4-20250514": "deepseek-v4-pro-anthr" }` — Claude Code sends Claude name, routes to Anthropic API provider
+
 ---
 
 ## 🤖 Copilot Explore Subagents
@@ -281,7 +309,7 @@ GitHub Copilot Agent starts an internal Explore subagent for code search. This e
 |---|---|---|---|---|
 | OpenAI | GPT-4.1 | 1M | ✅ | ✅ |
 | OpenAI | GPT-4o Mini | 128K | ✅ | ✅ |
-| DeepSeek | Chat / Reasoner | 64K | ✅ | — |
+| DeepSeek | Chat / Reasoner / V4 Pro / V4 Flash | 64K–1M | ✅ | — |
 | Google Gemini | 2.5 Pro / Flash | 1M | ✅ | ✅ |
 | Qwen DashScope | Qwen Plus | 128K | ✅ | — |
 | Zhipu GLM | GLM-4 Plus | 128K | ✅ | — |
@@ -314,6 +342,9 @@ GitHub Copilot Agent starts an internal Explore subagent for code search. This e
 | `Matrix OAI Gateway: Reset Usage` | Reset usage statistics |
 | `Matrix OAI Gateway: Check API Balance` | Query API key balance |
 | `Matrix OAI Gateway: Write Codex Config` | Generate Codex CLI config |
+| `Matrix OAI Gateway: Write Claude Code Config` | Generate Claude Code config |
+| `Matrix OAI Gateway: Set Anthropic Model Mapping` | Configure Claude model mapping |
+| `Matrix OAI Gateway: Set Codex/OpenAI Model Mapping` | Configure Codex model mapping |
 
 ---
 
@@ -346,7 +377,8 @@ This extension supports:
 - ✅ VS Code language models via `vscode.lm`
 - ✅ OpenAI-compatible proxy clients (curl, Continue, etc.)
 - ✅ OpenAI Responses protocol (Codex CLI)
-- ✅ Basic Anthropic Messages clients
+- ✅ Anthropic Messages passthrough (Claude Code)
+- ✅ Model name mapping for both Codex and Claude Code
 
 Tool calling, image input, reasoning options, and token usage depend on the upstream model.
 
@@ -376,6 +408,10 @@ Matrix OAI Gateway 可以把任意 OpenAI 兼容模型接入 VS Code / Copilot C
 - 🔌 **本地代理服务器** — 暴露 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 接口，支持 Codex CLI、Continue、curl 等外部工具
 - 💰 **余额查询** — 支持 DeepSeek、OpenAI、OpenRouter、智谱 GLM、SiliconFlow、Groq、Mistral 等 7+ 供应商，状态栏自动刷新
 - 🧠 **DeepSeek 思考模式** — 自动回放 `reasoning_content`，解决工具调用多轮对话的 `invalid_request_error`
+- 🔀 **Claude Code 第三方推理** — 通过 Anthropic API 透传让 Claude Code 使用 DeepSeek、GLM 等非 Claude 模型
+- 🔀 **Codex 模型映射** — Codex 指定别名模型名路由到任意配置模型
+- 🔀 **Claude Code 第三方推理** — 通过 Anthropic API 透传让 Claude Code 使用 DeepSeek、GLM 等非 Claude 模型
+- 🔀 **Codex 模型映射** — Codex 指定别名模型名路由到任意配置模型
 - ⚡ **一键预设模型** — 15+ 预设模型（DeepSeek V4、GPT-4.1、Gemini 2.5、Qwen、GLM、Kimi、Groq、Ollama…）
 - 🔐 **安全密钥管理** — API Key 存入 VS Code Secret Storage，永不记录日志，配置页自动脱敏
 - 📊 **用量统计** — 状态栏显示端口、余额、上下文用量、请求数、错误数；配置页显示模型级延迟和 token 用量

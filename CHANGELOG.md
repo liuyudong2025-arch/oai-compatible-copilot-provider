@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.3.2 - 2026-05-30
+
+### English
+
+- **Unmapped Claude models follow current upstream**: When Claude Code sends a model name not in the mapping (e.g. Explore agent's `claude-haiku-4-5-20251001`), it automatically uses the last successfully mapped upstream model. This way sub-agents always follow whichever upstream the main model is using — no need to map every Claude model name.
+
+### 中文
+
+- **未映射的 Claude 模型自动跟随当前上游**：Claude Code 发送映射表里没有的模型名（如 Explore agent 的 `claude-haiku-4-5-20251001`）时，自动使用最近一次成功映射的上游模型。子 agent 始终跟随主模型的上游，无需逐个映射所有 Claude 模型名。
+
+## 0.3.1 - 2026-05-30
+
+### English
+
+- **Fixed `anthropicMessagesUrl()` path bug**: URL like `https://api.deepseek.com/anthropic` now correctly appends `/v1/messages` instead of `/messages`, fixing "empty or malformed response" errors from Claude Code.
+- **Fixed `writeClaudeCodeConfigFiles()` format**: Now writes `env.ANTHROPIC_BASE_URL` (base URL without path) instead of incorrect `apiConfiguration.customApiUrl`, matching Claude Code's actual settings format.
+
+### 中文
+
+- **修复 `anthropicMessagesUrl()` 路径 bug**：`https://api.deepseek.com/anthropic` 现在正确拼接 `/v1/messages` 而非 `/messages`，修复 Claude Code "empty or malformed response" 错误。
+- **修复 `writeClaudeCodeConfigFiles()` 配置格式**：现在写入 `env.ANTHROPIC_BASE_URL`（不含路径的 base URL），而非错误的 `apiConfiguration.customApiUrl`，匹配 Claude Code 实际的配置格式。
+
+## 0.3.0 - 2026-05-30
+
+### English
+
+- **Anthropic API passthrough proxy**: Claude Code can now use non-Claude models (DeepSeek V4 Pro, GLM-5.1, etc.) through the local `/v1/messages` endpoint with transparent model name substitution.
+- **New preset models**: DeepSeek V4 Pro (Anthropic API), DeepSeek V4 Flash (Anthropic API), Zhipu GLM-5.1 (Anthropic API) — one-click setup for Claude Code third-party inference.
+- **`anthropicPassthrough()`**: SSE passthrough with model name replacement in responses, so Claude Code believes it's talking to real Claude.
+- **`sendAnthropicFromOpenAi()`**: OpenAI format → Anthropic format conversion for `/v1/chat/completions` routing to Anthropic providers.
+- **`anthropicViaNonAnthropicProvider()`**: Format bridge for routing Anthropic requests to non-Anthropic (OpenAI-compatible) providers.
+- **`inferApiMode()`**: Auto-detect `apiMode: 'anthropic'` from URL patterns containing `/anthropic`.
+- **New command `writeClaudeCodeConfig`**: Writes Claude Code configuration to `~/.claude/settings.json`.
+- **New command `setAnthropicModelMapping`**: Interactive UI to configure model name mapping (e.g. `claude-sonnet-4-20250514` → `deepseek-v4-pro-anthr`).
+- **New setting `proxy.anthropicModelMapping`**: Maps Claude model names to upstream model IDs for response substitution.
+- **Codex/OpenAI model mapping**: New `proxy.codexModelMapping` setting and `setCodexModelMapping` command let Codex use alias model names (e.g. `o3` → `deepseek-v4-pro`) that route to any configured model.
+- **`upstreamModelId` support**: Models can specify `upstreamModelId` to send a different model name to the upstream API (e.g. model id `deepseek-v4-pro-anthr` sends `deepseek-v4-pro` upstream).
+- **`findSiblingApiKey()`**: Automatically shares API keys across providers with the same domain (e.g. `deepseek-anthropic` uses key from `deepseek`).
+- **`/v1/models` includes mapped models**: Model discovery now returns both Anthropic-mapped and Codex-mapped model aliases so clients can validate them.
+- Updated `apiMode` description to document the `anthropic` option.
+- Updated `preset()` function to accept optional `apiMode` parameter.
+
+### 中文
+
+- **Anthropic API 透传代理**：Claude Code 现在可通过本地 `/v1/messages` 端点使用非 Claude 模型（DeepSeek V4 Pro、GLM-5.1 等），响应中自动替换模型名。
+- **新增预设模型**：DeepSeek V4 Pro（Anthropic API）、DeepSeek V4 Flash（Anthropic API）、Zhipu GLM-5.1（Anthropic API）—— 一键配置 Claude Code 第三方推理。
+- **`anthropicPassthrough()`**：SSE 透传并在响应中替换模型名，使 Claude Code 认为在与真正的 Claude 对话。
+- **`sendAnthropicFromOpenAi()`**：OpenAI 格式转 Anthropic 格式，用于 `/v1/chat/completions` 到 Anthropic provider 的路由。
+- **`anthropicViaNonAnthropicProvider()`**：格式桥接，将 Anthropic 请求路由到非 Anthropic（OpenAI 兼容）provider。
+- **`inferApiMode()`**：从 URL 模式自动推断 `apiMode: 'anthropic'`（URL 含 `/anthropic` 时）。
+- **新增命令 `writeClaudeCodeConfig`**：将 Claude Code 配置写入 `~/.claude/settings.json`。
+- **新增命令 `setAnthropicModelMapping`**：交互式配置模型名映射（如 `claude-sonnet-4-20250514` → `deepseek-v4-pro-anthr`）。
+- **新增设置 `proxy.anthropicModelMapping`**：将 Claude 模型名映射到上游模型 ID，用于响应替换。
+- **Codex/OpenAI 模型映射**：新增 `proxy.codexModelMapping` 设置和 `setCodexModelMapping` 命令，让 Codex 使用别名模型名（如 `o3` → `deepseek-v4-pro`）路由到任意配置模型。
+- **`upstreamModelId` 支持**：模型可指定 `upstreamModelId` 以向上游发送不同的模型名（如模型 id `deepseek-v4-pro-anthr` 上游发 `deepseek-v4-pro`）。
+- **`findSiblingApiKey()`**：自动在同域名 provider 间共享 API Key（如 `deepseek-anthropic` 使用 `deepseek` 的 key）。
+- **`/v1/models` 包含映射模型**：模型发现现在返回 Anthropic 映射和 Codex 映射的别名模型，客户端可校验。
+- 更新 `apiMode` 描述以文档化 `anthropic` 选项。
+- 更新 `preset()` 函数支持可选的 `apiMode` 参数。
+
 ## 0.2.40 - 2026-05-29
 
 ### English

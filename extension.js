@@ -170,6 +170,9 @@ const PRESET_MODELS = [
   preset('Google Gemini: Gemini 2.5 Flash', 'gemini-2.5-flash', 'Gemini 2.5 Flash', 'https://generativelanguage.googleapis.com/v1beta/openai', 'google-gemini', 'gemini', 1048576, true, true),
   preset('Anthropic: Claude Sonnet 4', 'claude-sonnet-4-20250514', 'Claude Sonnet 4', 'https://api.anthropic.com/v1', 'anthropic', 'claude', 200000, true, true),
   preset('Anthropic: Claude Haiku 3.5', 'claude-3-5-haiku-20241022', 'Claude Haiku 3.5', 'https://api.anthropic.com/v1', 'anthropic', 'claude', 200000, true, true),
+  preset('DeepSeek: V4 Pro (Anthropic API)', 'deepseek-v4-pro', 'DeepSeek V4 Pro (Anthropic)', 'https://api.deepseek.com/anthropic', 'deepseek-anthropic', 'deepseek', 64000, true, false, 'anthropic'),
+  preset('DeepSeek: V4 Flash (Anthropic API)', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Anthropic)', 'https://api.deepseek.com/anthropic', 'deepseek-anthropic', 'deepseek', 64000, true, false, 'anthropic'),
+  preset('Zhipu: GLM-5.1 (Anthropic API)', 'glm-5.1', 'GLM-5.1 (Anthropic)', 'https://open.bigmodel.cn/api/anthropic', 'zhipu-anthropic', 'glm', 128000, true, false, 'anthropic'),
   preset('Mistral: Mistral Large', 'mistral-large-latest', 'Mistral Large', 'https://api.mistral.ai/v1', 'mistral', 'mistral', 128000, true, true),
   preset('Together AI: Meta Llama', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Together Llama', 'https://api.together.xyz/v1', 'together', 'llama', 128000, true, false),
   preset('Perplexity: Sonar Pro', 'sonar-pro', 'Perplexity Sonar Pro', 'https://api.perplexity.ai', 'perplexity', 'perplexity', 127000, true, false),
@@ -189,6 +192,9 @@ let sessionStats;
 let cachedBalance = null;
 let balanceTimer;
 const reasoningCache = new Map();
+// Remembers the last upstream model used by Anthropic passthrough, so sub-agent requests
+// (e.g. Explore using claude-haiku-*) follow the same upstream as the parent request's mapped model.
+let lastAnthropicUpstreamModel = '';
 const MAX_IMAGE_DESC_CACHE_ENTRIES = 100;
 const VISION_CACHE_KEY = 'matrixOaiCopilot.visionCache';
 const imageDescriptionCache = new Map();
@@ -227,8 +233,8 @@ function persistVisionCache() {
   }
 }
 
-function preset(label, id, name, baseUrl, providerId, family, maxInputTokens, supportsTools, supportsImages) {
-  return {
+function preset(label, id, name, baseUrl, providerId, family, maxInputTokens, supportsTools, supportsImages, apiMode) {
+  const result = {
     label,
     model: {
       id,
@@ -242,6 +248,8 @@ function preset(label, id, name, baseUrl, providerId, family, maxInputTokens, su
       supportsImages
     }
   };
+  if (apiMode) { result.model.apiMode = apiMode; }
+  return result;
 }
 
 function activate(context) {
@@ -282,7 +290,10 @@ function activate(context) {
     vscode.commands.registerCommand('matrixOaiCopilot.setThinkingEffort', () => setThinkingEffortCommand()),
     vscode.commands.registerCommand('matrixOaiCopilot.setVisionProxyModel', () => setVisionProxyModelCommand()),
     vscode.commands.registerCommand('matrixOaiCopilot.resetUsage', () => resetUsageStats()),
-    vscode.commands.registerCommand('matrixOaiCopilot.checkBalance', () => checkBalanceCommand())
+    vscode.commands.registerCommand('matrixOaiCopilot.checkBalance', () => checkBalanceCommand()),
+    vscode.commands.registerCommand('matrixOaiCopilot.writeClaudeCodeConfig', () => writeClaudeCodeConfigCommand()),
+    vscode.commands.registerCommand('matrixOaiCopilot.setAnthropicModelMapping', () => setAnthropicModelMappingCommand()),
+    vscode.commands.registerCommand('matrixOaiCopilot.setCodexModelMapping', () => setCodexModelMappingCommand())
   );
 
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
@@ -471,7 +482,7 @@ function getProviders() {
       id,
       name: model.providerName || id,
       baseUrl: model.baseUrl,
-      apiMode: model.apiMode || 'openai',
+      apiMode: model.apiMode || inferApiMode(model.baseUrl) || 'openai',
       headers: model.headers || {}
     });
   }
@@ -654,6 +665,36 @@ async function getApiKey(context, model, silent) {
 function secretKeyFor(model) {
   const provider = model.providerId || model.provider?.id || model.baseUrl || 'default';
   return `matrixOaiCopilot.apiKey.${Buffer.from(provider).toString('base64url')}`;
+}
+
+async function findSiblingApiKey(configured) {
+  // Try to find an API key from a provider sharing the same base domain
+  // e.g. "deepseek-anthropic" (no key) can fall back to "deepseek" (has key) since both are api.deepseek.com
+  try {
+    const url = new URL(configured.baseUrl || '');
+    const domain = url.hostname;
+    const providers = getProviders();
+    for (const provider of providers) {
+      if (provider.id === (configured.providerId || configured.id)) continue;
+      try {
+        const pUrl = new URL(provider.baseUrl || '');
+        if (pUrl.hostname === domain) {
+          const key = await extensionContext.secrets.get(secretKeyFor(provider));
+          if (key) {
+            logInfo(`Found sibling API key from provider "${provider.id}" (same domain: ${domain})`);
+            return key;
+          }
+        }
+      } catch { /* skip invalid URL */ }
+    }
+    // Also try global key
+    const global = await extensionContext.secrets.get(GLOBAL_API_KEY);
+    if (global) {
+      logInfo(`Using global API key as fallback for ${configured.providerId || configured.id}`);
+      return global;
+    }
+  } catch { /* skip */ }
+  return undefined;
 }
 
 function buildChatRequest(config, messages, options) {
@@ -1266,6 +1307,41 @@ function convertTools(tools) {
 
 function isOllamaApi(config) {
   return String(config.apiMode || config.provider?.apiMode || '').toLowerCase() === 'ollama';
+}
+
+function isAnthropicApi(config) {
+  return String(config.apiMode || config.provider?.apiMode || '').toLowerCase() === 'anthropic';
+}
+
+function inferApiMode(baseUrl) {
+  const url = String(baseUrl || '').toLowerCase();
+  if (url.includes('/anthropic')) return 'anthropic';
+  return undefined;
+}
+
+function anthropicMessagesUrl(baseUrl) {
+  const clean = String(baseUrl || '').replace(/\/+$/, '');
+  if (clean.endsWith('/v1/messages')) return clean;
+  if (clean.endsWith('/messages')) return clean;
+  if (clean.endsWith('/v1')) return `${clean}/messages`;
+  // For Anthropic-style base URLs (e.g. https://api.deepseek.com/anthropic),
+  // the SDK appends /v1/messages — so we do the same
+  return `${clean}/v1/messages`;
+}
+
+function buildAnthropicHeaders(config, apiKey) {
+  const defaultHeaders = getConfig().get('defaultHeaders', {});
+  const headers = {
+    'content-type': 'application/json',
+    accept: 'text/event-stream, application/json',
+    'anthropic-version': '2023-06-01',
+    ...defaultHeaders,
+    ...(config.headers || {})
+  };
+  if (apiKey) {
+    headers['x-api-key'] = apiKey;
+  }
+  return headers;
 }
 
 function ollamaApiUrl(baseUrl) {
@@ -2303,6 +2379,11 @@ async function sendOaiUpstream(config, apiKey, body, sink, token) {
     return sendOllamaUpstream(config, apiKey, body, sink, token);
   }
 
+  // Route to Anthropic native API (converts OpenAI format to Anthropic Messages format)
+  if (isAnthropicApi(config)) {
+    return sendAnthropicFromOpenAi(config, apiKey, body, sink, token);
+  }
+
   const controller = new AbortController();
   const disposables = [];
   let timeoutId;
@@ -2373,6 +2454,85 @@ async function sendOaiUpstream(config, apiKey, body, sink, token) {
     for (const disposable of disposables) {
       disposable.dispose();
     }
+  }
+}
+
+// --- Anthropic upstream for /v1/chat/completions → Anthropic native API ---
+function openAiToAnthropicBody(body, config) {
+  const messages = [];
+  let system = '';
+  for (const msg of body.messages || []) {
+    const content = openAiContentToText(msg.content);
+    if (msg.role === 'system') { system += (system ? '\n\n' : '') + content; continue; }
+    messages.push({ role: msg.role, content });
+  }
+  const result = { model: body.model || config.id, messages, max_tokens: body.max_tokens || 4096, stream: body.stream || false };
+  if (system) { result.system = system; }
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    result.tools = body.tools.filter((t) => t.type === 'function' && t.function?.name).map((t) => ({
+      name: t.function.name, description: t.function.description || '',
+      input_schema: t.function.parameters || { type: 'object', properties: {} }
+    }));
+  }
+  return result;
+}
+
+async function sendAnthropicFromOpenAi(config, apiKey, body, sink, token) {
+  const anthropicBody = openAiToAnthropicBody(body, config);
+  const upstreamUrl = anthropicMessagesUrl(config.baseUrl);
+  const headers = buildAnthropicHeaders(config, apiKey);
+  const controller = new AbortController();
+  const timeoutSeconds = upstreamTimeoutSeconds(config);
+  const timeoutId = setTimeout(() => controller.abort(), Math.max(timeoutSeconds, 10) * 1000);
+  let timedOut = false;
+  let completionText = '';
+  let usage;
+
+  try {
+    if (token) { token.onCancellationRequested(() => controller.abort()); }
+    const upstreamResponse = await fetch(upstreamUrl, { method: 'POST', headers, body: JSON.stringify(anthropicBody), signal: controller.signal });
+    if (!upstreamResponse.ok) { const text = await upstreamResponse.text(); throw new Error(formatUpstreamError(upstreamResponse.status, text)); }
+    const contentType = upstreamResponse.headers.get('content-type') || '';
+    if (body.stream && contentType.includes('text/event-stream')) {
+      const reader = upstreamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr) continue;
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') { completionText += event.delta.text; sink.onText(event.delta.text); }
+            if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') { /* accumulate tool */ }
+            if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+              sink.onToolCall({ id: event.content_block.id, type: 'function', function: { name: event.content_block.name, arguments: '{}' } });
+            }
+            if (event.type === 'message_start' && event.message?.usage) { usage = { prompt_tokens: event.message.usage.input_tokens || 0, completion_tokens: event.message.usage.output_tokens || 0, total_tokens: (event.message.usage.input_tokens || 0) + (event.message.usage.output_tokens || 0) }; }
+            if (event.type === 'message_delta' && event.usage) { usage = usage || {}; usage.completion_tokens = event.usage.output_tokens || usage.completion_tokens; usage.total_tokens = (usage.prompt_tokens || 0) + (usage.completion_tokens || 0); }
+          } catch { /* skip */ }
+        }
+      }
+    } else {
+      const json = await upstreamResponse.json();
+      const textBlocks = (json.content || []).filter((b) => b.type === 'text');
+      completionText = textBlocks.map((b) => b.text || '').join('');
+      if (completionText) sink.onText(completionText);
+      usage = json.usage ? { prompt_tokens: json.usage.input_tokens || 0, completion_tokens: json.usage.output_tokens || 0, total_tokens: (json.usage.input_tokens || 0) + (json.usage.output_tokens || 0) } : undefined;
+    }
+    return { completionText, usage, assistantMessage: { role: 'assistant', content: completionText || null, reasoning_content: '', tool_calls: [] } };
+  } catch (error) {
+    if (timedOut) throw new Error(`Anthropic upstream timed out after ${timeoutSeconds}s.`);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -2916,7 +3076,7 @@ function setCorsHeaders(response) {
 async function handleOpenAiChatCompletion(request, response) {
   const body = await readJsonBody(request);
   const startedAt = Date.now();
-  const modelId = body.model || getConfig().get('proxy.defaultModel', '');
+  const modelId = resolveProxyModelId(body.model || getConfig().get('proxy.defaultModel', ''));
   const configured = findConfiguredModel(modelId);
 
   logInfo(`Proxy OpenAI request: ${modelId || '(default)'}, messages=${Array.isArray(body.messages) ? body.messages.length : 0}, stream=${Boolean(body.stream)}`);
@@ -3042,7 +3202,7 @@ async function handleOpenAiViaVsCodeLm(modelId, body, response, startedAt) {
 async function handleOpenAiResponses(request, response) {
   const body = await readJsonBody(request);
   const startedAt = Date.now();
-  const modelId = body.model || getConfig().get('proxy.defaultModel', '');
+  const modelId = resolveProxyModelId(body.model || getConfig().get('proxy.defaultModel', ''));
   const configured = findConfiguredModel(modelId);
 
   logInfo(`Proxy Responses request: ${modelId || '(default)'}, stream=${Boolean(body.stream)}`);
@@ -3333,14 +3493,74 @@ function writeResponsesSse(response, event, value) {
   response.write(`data: ${JSON.stringify(value)}\n\n`);
 }
 
+// Resolve model ID through optional model mapping (e.g. "o3" → "deepseek-v4-pro")
+function resolveProxyModelId(requestedId) {
+  if (!requestedId) return requestedId;
+  // Try OpenAI/Codex model mapping first
+  const codexMapping = getConfig().get('proxy.codexModelMapping', {});
+  if (codexMapping[requestedId]) {
+    logInfo(`Codex model mapping: ${requestedId} → ${codexMapping[requestedId]}`);
+    return codexMapping[requestedId];
+  }
+  // Try Anthropic model mapping
+  const anthropicMapping = getConfig().get('proxy.anthropicModelMapping', {});
+  if (anthropicMapping[requestedId]) {
+    return anthropicMapping[requestedId];
+  }
+  return requestedId;
+}
+
 async function handleAnthropicMessages(request, response) {
   const body = await readJsonBody(request);
   const startedAt = Date.now();
-  const model = await selectVsCodeModel(body.model || getConfig().get('proxy.defaultModel', ''));
+  const requestedModel = body.model || '';
+  const config = getConfig();
+  const mapping = config.get('proxy.anthropicModelMapping', {});
+
+  // requestedModel is what Claude Code sends (e.g. "claude-sonnet-4-5-20250514" or "claude-haiku-4-5-20251001")
+  // mapping maps Claude model name → upstream model ID, e.g. {"claude-sonnet-4-20250514": "deepseek-v4-pro-anthr", "claude-sonnet-4-5-20250514": "glm-5.1-anthr"}
+  // Unmapped Claude models (e.g. Explore agent's claude-haiku-*) follow the last successfully mapped upstream,
+  // which is the current session's active upstream model.
+  let mappedUpstreamModel = mapping[requestedModel] || '';
+  if (!mappedUpstreamModel && lastAnthropicUpstreamModel) {
+    mappedUpstreamModel = lastAnthropicUpstreamModel;
+  }
+  if (mappedUpstreamModel) {
+    lastAnthropicUpstreamModel = mappedUpstreamModel;
+  }
+  const lookupModel = mappedUpstreamModel || requestedModel;
+  const configured = findConfiguredModel(lookupModel);
+
+  // --- Try configured Anthropic provider passthrough ---
+  if (configured && isAnthropicApi(configured)) {
+    let apiKey = await getApiKey(extensionContext, configured, true);
+    // Fallback: try to find API key from a sibling provider sharing the same base domain
+    if (!apiKey) {
+      apiKey = await findSiblingApiKey(configured);
+    }
+    if (apiKey) {
+      logInfo(`Anthropic passthrough: Claude=${requestedModel}, upstream=${configured.id} @ ${configured.baseUrl}`);
+      return anthropicPassthrough(request, response, body, configured, apiKey, startedAt, requestedModel);
+    }
+    logInfo(`Anthropic passthrough skipped for ${requestedModel}: no API key for provider ${configured.providerId}`);
+  }
+
+  // --- Try any configured non-Anthropic provider (format bridge) ---
+  if (configured && !isAnthropicApi(configured)) {
+    const apiKey = await getApiKey(extensionContext, configured, true);
+    if (apiKey) {
+      logInfo(`Anthropic→OpenAI bridge: Claude=${requestedModel}, upstream=${configured.id} @ ${configured.baseUrl}`);
+      return anthropicViaNonAnthropicProvider(response, body, configured, apiKey, startedAt, requestedModel);
+    }
+  }
+
+  // --- Fallback to VS Code LM ---
+  logInfo(`Anthropic fallback to VS Code LM: requestedModel=${requestedModel}, mappedUpstreamModel=${mappedUpstreamModel || '(none)'}, configured=${configured ? configured.id : '(none)'}`);
+  const model = await selectVsCodeModel(requestedModel || config.get('proxy.defaultModel', ''));
   const messages = anthropicMessagesToVsCode(body);
   const maxTokens = Number(body.max_tokens || 4096);
 
-  logInfo(`Proxy Anthropic request: ${model.id}, messages=${Array.isArray(body.messages) ? body.messages.length : 0}, stream=${Boolean(body.stream)}`);
+  logInfo(`Proxy Anthropic request (VS Code LM): ${model.id}, messages=${Array.isArray(body.messages) ? body.messages.length : 0}, stream=${Boolean(body.stream)}`);
 
   if (body.stream) {
     response.writeHead(200, {
@@ -3430,6 +3650,199 @@ async function handleAnthropicMessages(request, response) {
   });
 }
 
+// --- Anthropic SSE passthrough with model name replacement ---
+// claudeModel = what Claude Code sent (e.g. "claude-sonnet-4-20250514")
+// configured.id = upstream model id (e.g. "deepseek-v4-pro")
+// Flow: replace model in outgoing request with configured.id, replace model in response with claudeModel
+async function anthropicPassthrough(request, response, body, configured, apiKey, startedAt, claudeModel) {
+  // Replace model in outgoing request with the upstream provider model id (or upstreamModelId if set)
+  const upstreamModelId = configured.upstreamModelId || configured.id;
+  const upstreamBody = { ...body, model: upstreamModelId };
+
+  const upstreamUrl = anthropicMessagesUrl(configured.baseUrl);
+  const headers = buildAnthropicHeaders(configured, apiKey);
+  const controller = new AbortController();
+  const timeoutSeconds = upstreamTimeoutSeconds(configured);
+  const timeoutId = setTimeout(() => controller.abort(), Math.max(timeoutSeconds, 10) * 1000);
+
+  try {
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method: 'POST', headers, body: JSON.stringify(upstreamBody), signal: controller.signal
+    });
+
+    if (!upstreamResponse.ok) {
+      const text = await upstreamResponse.text();
+      logInfo(`Anthropic upstream error: ${upstreamResponse.status} ${text}`);
+      sendJson(response, upstreamResponse.status, { type: 'error', error: { type: 'upstream_error', message: `Upstream returned ${upstreamResponse.status}: ${text}` } });
+      return;
+    }
+
+    const contentType = upstreamResponse.headers.get('content-type') || '';
+    const isSse = contentType.includes('text/event-stream');
+
+    if (body.stream && isSse) {
+      // Streaming: SSE passthrough with model name replacement
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive'
+      });
+
+      const reader = upstreamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      let completionChars = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('event:')) {
+            // Forward event type line as-is
+            response.write(line + '\n');
+          } else if (trimmed.startsWith('data:')) {
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr) {
+              response.write(line + '\n\n');
+              continue;
+            }
+            try {
+              const event = JSON.parse(jsonStr);
+              // Replace model name in response: upstream model id → claudeModel
+              if (event.type === 'message_start' && event.message) {
+                event.message.model = claudeModel;
+                if (event.message.usage) {
+                  totalInputTokens = event.message.usage.input_tokens || 0;
+                }
+              }
+              if (event.type === 'message_delta' && event.usage) {
+                totalOutputTokens = event.usage.output_tokens || 0;
+                // Count text content for completion chars
+              }
+              if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+                completionChars += (event.delta.text || '').length;
+              }
+              response.write(`data: ${JSON.stringify(event)}\n\n`);
+            } catch {
+              response.write(line + '\n\n');
+            }
+          } else {
+            response.write(line + '\n');
+          }
+        }
+      }
+      // Flush remaining buffer
+      if (buffer.trim()) {
+        response.write(buffer + '\n');
+      }
+      response.end();
+
+      recordUsage(claudeModel, 'anthropic-passthrough', {
+        prompt_tokens: totalInputTokens,
+        completion_tokens: totalOutputTokens,
+        total_tokens: totalInputTokens + totalOutputTokens
+      }, completionChars, Date.now() - startedAt, configured.providerId);
+    } else {
+      // Non-streaming: parse JSON, replace model, forward
+      const json = await upstreamResponse.json();
+      if (json.model) { json.model = claudeModel; }
+      const inputTokens = json.usage?.input_tokens || 0;
+      const outputTokens = json.usage?.output_tokens || 0;
+      const completionChars = (json.content || []).filter((b) => b.type === 'text').reduce((s, b) => s + (b.text || '').length, 0);
+      recordUsage(claudeModel, 'anthropic-passthrough', {
+        prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens
+      }, completionChars, Date.now() - startedAt, configured.providerId);
+      sendJson(response, 200, json);
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      logInfo(`Anthropic upstream timed out after ${timeoutSeconds}s`);
+      sendJson(response, 504, { type: 'error', error: { type: 'timeout', message: `Upstream timed out after ${timeoutSeconds}s` } });
+    } else {
+      logInfo(`Anthropic upstream error: ${error.message}`);
+      sendJson(response, 502, { type: 'error', error: { type: 'upstream_error', message: error.message } });
+    }
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// --- Anthropic format via non-Anthropic provider (format bridge) ---
+async function anthropicViaNonAnthropicProvider(response, body, configured, apiKey, startedAt, claudeModel) {
+  // Convert Anthropic messages → OpenAI messages, send via sendOaiUpstream, then convert back
+  const oaiMessages = anthropicToOpenAiBody(body, configured);
+  const sink = {
+    texts: [],
+    toolCalls: [],
+    onText(text) { this.texts.push(text); },
+    onToolCall(tc) { this.toolCalls.push(tc); }
+  };
+
+  const result = await sendOaiUpstream(configured, apiKey, oaiMessages, sink, undefined);
+  const completionText = result?.completionText || sink.texts.join('');
+  const usage = result?.usage;
+  const responseModel = claudeModel || body.model || configured.id;
+
+  if (body.stream) {
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive'
+    });
+    const messageId = `msg_${Date.now()}`;
+    writeAnthropicEvent(response, 'message_start', {
+      type: 'message_start',
+      message: {
+        id: messageId, type: 'message', role: 'assistant',
+        model: responseModel, content: [], stop_reason: null, stop_sequence: null,
+        usage: { input_tokens: usage?.prompt_tokens || 0, output_tokens: 0 }
+      }
+    });
+    writeAnthropicEvent(response, 'content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+    if (completionText) {
+      writeAnthropicEvent(response, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: completionText } });
+    }
+    writeAnthropicEvent(response, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+    writeAnthropicEvent(response, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: usage?.completion_tokens || estimateTokens(completionText) } });
+    writeAnthropicEvent(response, 'message_stop', { type: 'message_stop' });
+    response.end();
+  } else {
+    sendJson(response, 200, {
+      id: `msg_${Date.now()}`, type: 'message', role: 'assistant',
+      model: responseModel,
+      content: [{ type: 'text', text: completionText }],
+      stop_reason: 'end_turn', stop_sequence: null,
+      usage: { input_tokens: usage?.prompt_tokens || 0, output_tokens: usage?.completion_tokens || estimateTokens(completionText) }
+    });
+  }
+
+  recordUsage(responseModel, 'anthropic-bridge', {
+    prompt_tokens: usage?.prompt_tokens || 0, completion_tokens: usage?.completion_tokens || 0,
+    total_tokens: usage?.total_tokens || 0
+  }, completionText.length, Date.now() - startedAt, configured.providerId);
+}
+
+function anthropicToOpenAiBody(body, configured) {
+  const messages = [];
+  if (body.system) {
+    messages.push({ role: 'system', content: typeof body.system === 'string' ? body.system : body.system.map((b) => b.text || '').join('\n') });
+  }
+  for (const msg of body.messages || []) {
+    if (msg.role === 'user' || msg.role === 'assistant') {
+      const text = typeof msg.content === 'string' ? msg.content : (Array.isArray(msg.content) ? msg.content.map((b) => b.text || '').join('') : '');
+      messages.push({ role: msg.role, content: text });
+    }
+  }
+  return { model: configured.id, messages, max_tokens: body.max_tokens || 4096, stream: false };
+}
+
 async function readJsonBody(request) {
   const maxBytes = getConfig().get('proxy.maxBodyBytes', 10 * 1024 * 1024);
   const chunks = [];
@@ -3477,7 +3890,39 @@ async function listProxyModels() {
     max_input_tokens: model.maxInputTokens
   }));
 
-  return [...lmRows, ...configuredRows];
+  // Add mapped Claude model names from anthropicModelMapping so Claude Code can discover them
+  const anthropicMapping = getConfig().get('proxy.anthropicModelMapping', {});
+  const anthropicRows = Object.keys(anthropicMapping).map((claudeModel) => ({
+    id: claudeModel,
+    object: 'model',
+    created: 0,
+    owned_by: 'anthropic',
+    source: 'anthropic-mapping',
+    name: claudeModel,
+    family: 'claude',
+    version: claudeModel,
+    max_input_tokens: 200000
+  }));
+
+  // Add mapped Codex/OpenAI model names from codexModelMapping
+  const codexMapping = getConfig().get('proxy.codexModelMapping', {});
+  const codexRows = Object.keys(codexMapping).map((alias) => {
+    const target = findConfiguredModel(codexMapping[alias]);
+    return {
+      id: alias,
+      object: 'model',
+      created: 0,
+      owned_by: target?.providerId || 'codex-mapping',
+      source: 'codex-mapping',
+      upstream_model: codexMapping[alias],
+      name: alias,
+      family: target?.family || 'openai',
+      version: alias,
+      max_input_tokens: target?.maxInputTokens || 128000
+    };
+  });
+
+  return [...lmRows, ...configuredRows, ...anthropicRows, ...codexRows];
 }
 
 async function selectVsCodeModel(requestedId) {
@@ -5168,6 +5613,143 @@ async function resetUsageStats() {
   await persistStats(createStats());
   logInfo('Usage stats reset.');
   refreshConfigPanel();
+}
+
+async function writeClaudeCodeConfigCommand() {
+  try {
+    await startProxy();
+    const result = writeClaudeCodeConfigFiles();
+    logInfo('=== Claude Code configuration written ===');
+    logInfo(`Settings: ${result.settingsPath}`);
+    output?.show();
+    vscode.window.showInformationMessage(
+      `Claude Code now points to Matrix OAI proxy (${result.proxyUrl}). ANTHROPIC_BASE_URL set in ~/.claude/settings.json`,
+      'Show Output'
+    ).then((action) => {
+      if (action === 'Show Output') output?.show();
+    });
+  } catch (error) {
+    logError('Write Claude Code config failed', error);
+    vscode.window.showErrorMessage(`Write Claude Code config failed: ${error.message}`);
+  }
+}
+
+function writeClaudeCodeConfigFiles() {
+  const claudeDir = path.join(os.homedir(), '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+
+  const settingsPath = path.join(claudeDir, 'settings.json');
+  const host = getConfig().get('proxy.host', '127.0.0.1');
+  const port = getConfig().get('proxy.port', 8080);
+  const baseUrl = `http://${host}:${port}`;
+
+  let settings = {};
+  if (fs.existsSync(settingsPath)) {
+    try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { settings = {}; }
+  }
+
+  // Claude Code uses env vars: ANTHROPIC_BASE_URL (base URL, SDK appends /v1/messages)
+  // and ANTHROPIC_AUTH_TOKEN (API key for the upstream provider)
+  settings.env = settings.env || {};
+  settings.env.ANTHROPIC_BASE_URL = baseUrl;
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+  return { settingsPath, proxyUrl: baseUrl };
+}
+
+async function setAnthropicModelMappingCommand() {
+  const config = getConfig();
+  const currentMapping = config.get('proxy.anthropicModelMapping', {});
+
+  const items = Object.entries(currentMapping).map(([from, to]) => ({
+    label: from,
+    description: `→ ${to}`
+  }));
+  if (items.length === 0) {
+    items.push({ label: '(no mappings yet)', description: '' });
+  }
+
+  const action = await vscode.window.showQuickPick([
+    { label: '$(add) Add new mapping', action: 'add' },
+    { label: '$(trash) Remove a mapping', action: 'remove' },
+    { label: '$(eye) View current mappings', action: 'view' }
+  ], { placeHolder: 'Anthropic model mapping: Claude model name (key) → upstream model ID (value)' });
+
+  if (!action) return;
+
+  if (action.action === 'add') {
+    const claudeName = await vscode.window.showInputBox({
+      title: 'Add Anthropic model mapping',
+      prompt: 'Claude model name (what Claude Code sends, e.g. claude-sonnet-4-20250514)',
+      value: 'claude-sonnet-4-20250514',
+      ignoreFocusOut: true
+    });
+    if (!claudeName) return;
+    const upstreamId = await vscode.window.showInputBox({
+      title: 'Add Anthropic model mapping',
+      prompt: 'Upstream model ID (the model your provider uses, e.g. deepseek-v4-pro)',
+      ignoreFocusOut: true
+    });
+    if (!upstreamId) return;
+    currentMapping[claudeName] = upstreamId;
+    await config.update('proxy.anthropicModelMapping', currentMapping, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`Mapping added: ${claudeName} → ${upstreamId}`);
+  } else if (action.action === 'remove') {
+    const toRemove = await vscode.window.showQuickPick(
+      Object.keys(currentMapping).map((k) => ({ label: k, description: `→ ${currentMapping[k]}` })),
+      { placeHolder: 'Select mapping to remove' }
+    );
+    if (!toRemove) return;
+    delete currentMapping[toRemove.label];
+    await config.update('proxy.anthropicModelMapping', currentMapping, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`Mapping removed: ${toRemove.label}`);
+  } else if (action.action === 'view') {
+    const msg = Object.entries(currentMapping).map(([k, v]) => `${k} → ${v}`).join('\n') || '(none)';
+    vscode.window.showInformationMessage(`Current mappings:\n${msg}`, { modal: true });
+  }
+}
+
+async function setCodexModelMappingCommand() {
+  const config = getConfig();
+  const currentMapping = config.get('proxy.codexModelMapping', {});
+
+  const action = await vscode.window.showQuickPick([
+    { label: '$(add) Add new mapping', action: 'add' },
+    { label: '$(trash) Remove a mapping', action: 'remove' },
+    { label: '$(eye) View current mappings', action: 'view' }
+  ], { placeHolder: 'Codex/OpenAI model mapping: alias model name → configured model ID' });
+
+  if (!action) return;
+
+  if (action.action === 'add') {
+    const alias = await vscode.window.showInputBox({
+      title: 'Add Codex model mapping',
+      prompt: 'Alias model name (what Codex sends, e.g. o3, gpt-4.1)',
+      ignoreFocusOut: true
+    });
+    if (!alias) return;
+    const target = await vscode.window.showInputBox({
+      title: 'Add Codex model mapping',
+      prompt: 'Configured model ID (e.g. deepseek-v4-pro, glm-5.1)',
+      ignoreFocusOut: true
+    });
+    if (!target) return;
+    currentMapping[alias] = target;
+    await config.update('proxy.codexModelMapping', currentMapping, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`Codex mapping added: ${alias} → ${target}`);
+  } else if (action.action === 'remove') {
+    const toRemove = await vscode.window.showQuickPick(
+      Object.keys(currentMapping).map((k) => ({ label: k, description: `→ ${currentMapping[k]}` })),
+      { placeHolder: 'Select mapping to remove' }
+    );
+    if (!toRemove) return;
+    delete currentMapping[toRemove.label];
+    await config.update('proxy.codexModelMapping', currentMapping, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(`Codex mapping removed: ${toRemove.label}`);
+  } else if (action.action === 'view') {
+    const msg = Object.entries(currentMapping).map(([k, v]) => `${k} → ${v}`).join('\n') || '(none)';
+    vscode.window.showInformationMessage(`Current Codex mappings:\n${msg}`, { modal: true });
+  }
 }
 
 function estimateTokens(text) {
