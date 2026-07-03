@@ -2,7 +2,7 @@
   "name": "matrix-oai-compatible-copilot-provider",
   "displayName": "Matrix OAI Gateway for Copilot",
   "description": "OpenAI-compatible Copilot and VS Code language-model gateway with local proxy (Chat Completions + Responses API), usage telemetry, balance checking, and DeepSeek thinking-mode replay. / 支持本地代理(Chat Completions + Responses API)、用量统计、余额查询和 DeepSeek 思考模式回放的 OAI 网关。",
-  "version": "0.3.2",
+  "version": "0.3.9",
   "publisher": "matrix-oai-compatible-copilot-provider",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -52,6 +52,7 @@
     "onCommand:matrixOaiCopilot.restartProxy",
     "onCommand:matrixOaiCopilot.showConfig",
     "onCommand:matrixOaiCopilot.showOutput",
+    "onCommand:matrixOaiCopilot.copyLastUpstreamRequest",
     "onCommand:matrixOaiCopilot.openSettings",
     "onCommand:matrixOaiCopilot.writeCodexConfig",
     "onCommand:matrixOaiCopilot.setThinkingEffort",
@@ -108,6 +109,10 @@
       {
         "command": "matrixOaiCopilot.showOutput",
         "title": "Matrix OAI Gateway: Show Output"
+      },
+      {
+        "command": "matrixOaiCopilot.copyLastUpstreamRequest",
+        "title": "Matrix OAI Gateway: Copy Last Upstream Request"
       },
       {
         "command": "matrixOaiCopilot.openSettings",
@@ -322,6 +327,26 @@
               "supportsImages": {
                 "type": "boolean",
                 "default": false
+              },
+              "showInModelPicker": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show this model in VS Code's language model picker. Set false to keep it configured for proxy/Codex/Claude Code/vision usage without exposing it in Copilot model lists."
+              },
+              "hidden": {
+                "type": "boolean",
+                "default": false,
+                "description": "Compatibility alias for hiding this model from VS Code's language model picker."
+              },
+              "visible": {
+                "type": "boolean",
+                "default": true,
+                "description": "Compatibility alias for showInModelPicker."
+              },
+              "isUserSelectable": {
+                "type": "boolean",
+                "default": true,
+                "description": "Compatibility alias for showInModelPicker."
               },
               "vision": {
                 "type": "boolean",

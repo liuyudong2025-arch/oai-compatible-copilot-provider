@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.3.9 - 2026-07-03
+
+### English
+
+- Added `Matrix OAI Gateway: Copy Last Upstream Request` to export the most recent upstream URL, redacted headers, request body, and response status/body for support tickets.
+- The exported snapshot redacts Authorization-style headers while preserving the request body needed to diagnose first-request 429 responses.
+
+### Chinese
+
+- 新增 `Matrix OAI Gateway: Copy Last Upstream Request`，用于导出最近一次上游请求的 URL、已打码 headers、请求体，以及响应状态/响应体，方便提交工单排查。
+- 导出内容会打码 Authorization 类 headers，同时保留排查首包 429 所需的请求体。
+
+## 0.3.8 - 2026-07-02
+
+### English
+
+- Fixed `omitUnsupportedParameters` so strict upstream requests now really only send `model`, `stream`, `messages`, and optional `tools` / `tool_choice`.
+- `upstreamModelId` is now honored for regular OpenAI-compatible provider requests, not only Anthropic passthrough.
+- This reduces first-request failures from gateways that reject or rate-limit extended thinking / reasoning / stream option fields.
+
+### Chinese
+
+- 修复 `omitUnsupportedParameters`：严格兼容模式现在会真正只发送 `model`、`stream`、`messages`，以及可选的 `tools` / `tool_choice`。
+- 普通 OpenAI-compatible provider 请求现在也会使用 `upstreamModelId`，不再只在 Anthropic passthrough 中生效。
+- 降低首包因额外 thinking / reasoning / stream option 字段被网关拒绝或命中限流规则的概率。
+
+## 0.3.7 - 2026-06-04
+
+### English
+
+- Restored Matrix-managed model picker visibility for VS Code 1.121.
+- VS Code's public `LanguageModelChatInformation` API does not expose `isUserSelectable` for third-party providers, and non-default providers are resolved with all returned models. Matrix OAI now filters hidden models itself and exposes eye-icon Show/Hide controls in the Matrix configuration panel.
+
+### 中文
+
+- 恢复 Matrix 自己管理的模型列表显隐，适配 VS Code 1.121。
+- VS Code 公开的 `LanguageModelChatInformation` API 没有给第三方 provider 暴露 `isUserSelectable`，普通第三方 provider 返回的模型会被全量加入列表。Matrix OAI 现在自己过滤隐藏模型，并在配置页面提供眼睛图标 Show/Hide 控制。
+
+## 0.3.6 - 2026-06-04
+
+### English
+
+- Attempted model visibility integration with VS Code's Language Models editor.
+- Superseded by 0.3.7 after verifying that VS Code 1.121 does not expose this native visibility control to ordinary third-party language model providers.
+
+### 中文
+
+- 修复和 VS Code 语言模型管理器的显隐集成。
+- Provider 现在返回所有已配置模型，只把 `isUserSelectable` 作为默认是否出现在模型选择器的状态，避免过滤模型后官方眼睛图标无法再切回。
+
+## 0.3.5 - 2026-06-04
+
+### English
+
+- Added per-model visibility controls for the VS Code language model picker.
+- Models can now set `showInModelPicker: false`, `hidden: true`, `isUserSelectable: false`, or `visible: false` to stay configured for proxy/Codex/Claude Code/vision use without being shown in Copilot model lists.
+- Restored visibility controls in the configuration panel with per-model Show/Hide actions.
+
+### 中文
+
+- 增加模型列表显示控制，可以按模型决定是否出现在 VS Code 语言模型选择器里。
+- 模型可以配置 `showInModelPicker: false`、`hidden: true`、`isUserSelectable: false` 或 `visible: false`。隐藏后仍保留在 Matrix OAI 配置里，proxy、Codex、Claude Code、视觉代理等内部用途仍可继续使用。
+- 配置页面恢复每个模型的 Show/Hide 操作，可以直接控制是否显示在模型列表里。
+
+## 0.3.4 - 2026-06-03
+
+### English
+
+- Added `write_to_file` as a tool-call alias for VS Code write-file tools.
+- Normalizes common `write_to_file` argument names such as `file_path`, `filename`, `text`, and `file_content` into the active VS Code tool schema.
+- Prevents models trained on Cline/Roo-style tools from being dropped with `Dropping unavailable tool call: write_to_file`.
+
+### 中文
+
+- 增加 `write_to_file` 工具调用别名，映射到 VS Code 当前可用的写文件工具。
+- 兼容 `file_path`、`filename`、`text`、`file_content` 等常见参数名，并转换成当前 VS Code 工具 schema。
+- 避免模型输出 Cline/Roo 风格工具名时触发 `Dropping unavailable tool call: write_to_file`。
+
+## 0.3.3 - 2026-06-01
+
+### English
+
+- **Vision proxy: empty results no longer cached**: When the vision proxy model (e.g. qwen3.5-9b) returns an empty description, the error fallback string is no longer written to cache. Subsequent requests for the same image will retry, fixing "only 1 of 2 images described" intermittent issue.
+
+### 中文
+
+- **Vision 代理：空结果不再缓存**：当视觉代理模型（如 qwen3.5-9b）返回空描述时，错误回退字符串不再写入缓存。同一图片下次请求会重试，修复"2张图只有1张能描述"的偶发性问题。
+
 ## 0.3.2 - 2026-05-30
 
 ### English

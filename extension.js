@@ -12,6 +12,7 @@ const EXTENSION_VERSION = require('./package.json').version;
 const CONFIG_SECTION = 'matrixOaiCopilot';
 const GLOBAL_API_KEY = 'matrixOaiCopilot.globalApiKey';
 const STATS_KEY = 'matrixOaiCopilot.usageStats';
+const LAST_UPSTREAM_REQUEST_NOTE = 'Authorization is redacted. Request body may contain prompt, code, paths, and tool schemas.';
 const MAX_REASONING_CACHE_ENTRIES = 200;
 const MODEL_DEFAULT_PARAMETER_KEYS = [
   'temperature',
@@ -191,6 +192,7 @@ let proxyPanel;
 let sessionStats;
 let cachedBalance = null;
 let balanceTimer;
+let lastUpstreamRequestSnapshot;
 const reasoningCache = new Map();
 // Remembers the last upstream model used by Anthropic passthrough, so sub-agent requests
 // (e.g. Explore using claude-haiku-*) follow the same upstream as the parent request's mapped model.
@@ -206,16 +208,36 @@ function loadVisionCache() {
       const entries = Object.entries(stored);
       // Keep only the most recent MAX entries (last N by insertion order)
       const recent = entries.slice(-MAX_IMAGE_DESC_CACHE_ENTRIES);
+      let loadedCount = 0;
+      let prunedCount = 0;
+      const clean = {};
       for (const [key, value] of recent) {
+        if (isVisionErrorFallback(value)) {
+          prunedCount++;
+          continue; // Skip stale error fallbacks from previous versions
+        }
         imageDescriptionCache.set(key, value);
+        clean[key] = value;
+        loadedCount++;
       }
-      if (entries.length > 0) {
-        logInfo(`Vision cache: loaded ${recent.length} persisted descriptions.`);
+      if (prunedCount > 0) {
+        // Rewrite globalState without the stale entries
+        extensionContext?.globalState?.update(VISION_CACHE_KEY, clean);
+        logInfo(`Vision cache: loaded ${loadedCount} descriptions, pruned ${prunedCount} stale error fallbacks.`);
+      } else if (entries.length > 0) {
+        logInfo(`Vision cache: loaded ${loadedCount} persisted descriptions.`);
       }
     }
   } catch (e) {
     logDebug('Failed to load vision cache from globalState', e);
   }
+} 
+
+function isVisionErrorFallback(description) {
+  return !description
+    || description.startsWith('The configured Matrix OAI vision proxy returned')
+    || description.startsWith('The vision proxy returned')
+    || description.startsWith('Image input was provided');
 }
 
 function persistVisionCache() {
@@ -285,6 +307,7 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('matrixOaiCopilot.showConfig', () => showConfigPanel()),
     vscode.commands.registerCommand('matrixOaiCopilot.showOutput', () => output?.show()),
+    vscode.commands.registerCommand('matrixOaiCopilot.copyLastUpstreamRequest', () => copyLastUpstreamRequestCommand()),
     vscode.commands.registerCommand('matrixOaiCopilot.openSettings', () => openSettingsCommand()),
     vscode.commands.registerCommand('matrixOaiCopilot.writeCodexConfig', () => writeCodexConfigCommand()),
     vscode.commands.registerCommand('matrixOaiCopilot.setThinkingEffort', () => setThinkingEffortCommand()),
@@ -346,7 +369,7 @@ class OaiCompatibleChatProvider {
       return [];
     }
 
-    return getModels().map((model) => {
+    return getModels().filter(modelVisibleInPicker).map((model) => {
       const resolved = resolveModel(model);
       return {
         id: publicModelId(resolved),
@@ -357,7 +380,6 @@ class OaiCompatibleChatProvider {
         version: resolved.version || resolved.id,
         maxInputTokens: Number(resolved.maxInputTokens || Math.max(1, Number(resolved.context_length || 128000) - Number(resolved.max_tokens || resolved.maxTokens || 4096))),
         maxOutputTokens: Number(resolved.maxOutputTokens || resolved.max_tokens || resolved.maxTokens || 4096),
-        isUserSelectable: true,
         isDefault: Boolean(resolved.isDefault),
         capabilities: {
           toolCalling: resolved.supportsTools !== false,
@@ -462,6 +484,13 @@ function getConfig() {
 
 function getModels() {
   return getConfig().get('models', []).filter((model) => model && model.id && (model.providerId || model.baseUrl));
+}
+
+function modelVisibleInPicker(model) {
+  return model?.showInModelPicker !== false
+    && model?.isUserSelectable !== false
+    && model?.visible !== false
+    && model?.hidden !== true;
 }
 
 function getProviders() {
@@ -701,7 +730,7 @@ function buildChatRequest(config, messages, options) {
   // Build body with stable keys (model, tools) BEFORE variable keys (messages)
   // so that tools become part of the JSON prefix that DeepSeek can cache across turns.
   const body = {
-    model: config.id,
+    model: config.upstreamModelId || config.id,
     stream: getConfig().get('stream', true)
   };
 
@@ -713,6 +742,10 @@ function buildChatRequest(config, messages, options) {
 
   // Messages go LAST — they change every turn, so anything after them would miss cache.
   body.messages = convertVsCodeMessagesToOpenAi(messages, config);
+  const upstreamImageParts = countOpenAiImageParts(body.messages);
+  if (upstreamImageParts > 0) {
+    logInfo(`Provider request still contains ${upstreamImageParts} OpenAI image part(s) for ${config.name || config.id}.`);
+  }
 
   if (!config.omitUnsupportedParameters) {
     const temperature = options?.modelOptions?.temperature ?? getConfig().get('temperature', null);
@@ -731,8 +764,25 @@ function buildChatRequest(config, messages, options) {
 
 function prepareUpstreamRequest(config, body, options) {
   const requested = { ...body };
+  if (config.upstreamModelId) {
+    requested.model = config.upstreamModelId;
+  }
   if (typeof config.stream === 'boolean') {
     requested.stream = config.stream;
+  }
+  if (config.omitUnsupportedParameters) {
+    const minimal = {
+      model: requested.model,
+      stream: requested.stream,
+      messages: requested.messages
+    };
+    if (requested.tools !== undefined) {
+      minimal.tools = requested.tools;
+    }
+    if (requested.tool_choice !== undefined) {
+      minimal.tool_choice = requested.tool_choice;
+    }
+    return minimal;
   }
   const withDefaults = applyModelDefaultParameters(config, requested, options);
   return {
@@ -793,15 +843,36 @@ function isDeepSeekModel(config) {
 }
 
 async function prepareCopilotMessages(config, messages) {
-  if (modelSupportsImages(config) || !getConfig().get('copilot.enableVisionProxy', true) || !messagesContainImages(messages)) {
+  const imageParts = countVsCodeImageParts(messages);
+  const supportsImages = modelSupportsImages(config);
+  const visionProxyEnabled = getConfig().get('copilot.enableVisionProxy', true);
+
+  if (imageParts > 0) {
+    logInfo(`Provider request has ${imageParts} VS Code image part(s) for ${config.name || config.id}; supportsImages=${supportsImages}; visionProxy=${visionProxyEnabled}.`);
+  }
+
+  if (supportsImages || !visionProxyEnabled || imageParts === 0) {
     return messages;
   }
 
+  logInfo(`Vision proxy will describe ${imageParts} image part(s) before sending to ${config.name || config.id}.`);
   return describeImagesForTextModel(messages);
 }
 
 function messagesContainImages(messages) {
-  return (messages || []).some((message) => (message.content || []).some(isImageDataPart));
+  return countVsCodeImageParts(messages) > 0;
+}
+
+function countVsCodeImageParts(messages) {
+  let count = 0;
+  for (const message of messages || []) {
+    for (const part of message.content || []) {
+      if (isImageDataPart(part)) {
+        count++;
+      }
+    }
+  }
+  return count;
 }
 
 function isImageDataPart(part) {
@@ -859,29 +930,55 @@ async function describeImagePart(part) {
     logInfo('Vision proxy requested, but no image-capable Matrix OAI or VS Code model is available.');
     return 'Image input was provided, but no vision proxy model is available to describe it.';
   }
+  logInfo(`Vision proxy target selected: ${target.value} (${target.label}).`);
 
-  try {
-    logInfo(`Vision proxy describing image with ${target.value} (${target.label}).`);
-    let description;
-    if (target.kind === 'configured-oai') {
-      description = await describeImageWithConfiguredModel(target.model, part);
-    } else {
-      description = await describeImageWithVsCodeModel(target.model, part);
-    }
+  // Retry up to 3 times when the vision model returns an empty/error result
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 800;
+  let lastError;
 
-    imageDescriptionCache.set(cacheKey, description);
-    while (imageDescriptionCache.size > MAX_IMAGE_DESC_CACHE_ENTRIES) {
-      const firstKey = imageDescriptionCache.keys().next().value;
-      imageDescriptionCache.delete(firstKey);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      logInfo(`Vision proxy describing image with ${target.value} (${target.label}) attempt ${attempt}/${MAX_RETRIES}.`);
+      let description;
+      if (target.kind === 'configured-oai') {
+        description = await describeImageWithConfiguredModel(target.model, part);
+      } else {
+        description = await describeImageWithVsCodeModel(target.model, part);
+      }
+
+      if (isVisionErrorFallback(description)) {
+        if (attempt < MAX_RETRIES) {
+          logInfo(`Vision proxy attempt ${attempt} returned empty, retrying after ${RETRY_DELAY_MS}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+          continue;
+        }
+        logInfo(`Vision proxy all ${MAX_RETRIES} attempts returned empty, giving up.`);
+        return description;
+      }
+
+      // Successful description — cache and return
+      imageDescriptionCache.set(cacheKey, description);
+      while (imageDescriptionCache.size > MAX_IMAGE_DESC_CACHE_ENTRIES) {
+        const firstKey = imageDescriptionCache.keys().next().value;
+        imageDescriptionCache.delete(firstKey);
+      }
+      persistVisionCache();
+
+      logInfo(`Vision proxy description result (${cacheKey.slice(0, 12)}..., ${description.length} chars, cached): ${description.slice(0, 500)}`);
+      return description;
+    } catch (error) {
+      lastError = error;
+      logError(`Vision proxy attempt ${attempt}/${MAX_RETRIES} failed with ${target.value}`, error);
+      if (attempt < MAX_RETRIES) {
+        logInfo(`Retrying after ${RETRY_DELAY_MS}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      }
     }
-    // Persist to globalState so the same image gets the same description across sessions
-    persistVisionCache();
-    logInfo(`Vision proxy description result (${cacheKey.slice(0, 12)}..., ${description.length} chars, cached persistently): ${description.slice(0, 500)}`);
-    return description;
-  } catch (error) {
-    logError(`Vision proxy failed with ${target.value}`, error);
-    return `Image input was provided, but the configured vision proxy failed: ${error.message || String(error)}`;
   }
+
+  // All attempts exhausted
+  return `Image input was provided, but the configured vision proxy failed: ${lastError?.message || String(lastError)}`;
 }
 
 function imageDescriptionCacheKey(part) {
@@ -1015,6 +1112,21 @@ function visionProxyTargetMatches(target, wanted) {
     const text = String(value || '').toLowerCase();
     return text === wanted || text.includes(wanted);
   });
+}
+
+function countOpenAiImageParts(messages) {
+  let count = 0;
+  for (const message of messages || []) {
+    if (!Array.isArray(message?.content)) {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part?.type === 'image_url' || part?.type === 'input_image' || part?.type === 'image') {
+        count++;
+      }
+    }
+  }
+  return count;
 }
 
 function withTimeout(promise, timeoutSeconds, message) {
@@ -2404,6 +2516,22 @@ async function sendOaiUpstream(config, apiKey, body, sink, token) {
 
   try {
     const headers = buildHeaders(config, apiKey);
+    const upstreamUrl = chatCompletionsUrl(config.baseUrl);
+    captureLastUpstreamRequest({
+      kind: 'openai-chat-completions',
+      url: upstreamUrl,
+      method: 'POST',
+      headers,
+      body,
+      modelConfig: {
+        id: config.id,
+        name: config.name,
+        providerId: config.providerId,
+        apiMode: config.apiMode || config.provider?.apiMode,
+        upstreamModelId: config.upstreamModelId,
+        omitUnsupportedParameters: Boolean(config.omitUnsupportedParameters)
+      }
+    });
     logDebug('Sending upstream OAI request', {
       model: body.model,
       stream: body.stream,
@@ -2411,7 +2539,7 @@ async function sendOaiUpstream(config, apiKey, body, sink, token) {
       headers: Object.keys(headers).filter((key) => key.toLowerCase() !== 'authorization')
     });
 
-    const response = await fetch(chatCompletionsUrl(config.baseUrl), {
+    const response = await fetch(upstreamUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -2421,8 +2549,10 @@ async function sendOaiUpstream(config, apiKey, body, sink, token) {
     logInfo(`Upstream response: ${response.status} ${response.statusText || ''}`.trim());
     if (!response.ok) {
       const text = await response.text();
+      updateLastUpstreamResponse(response, text);
       throw new Error(formatUpstreamError(response.status, text));
     }
+    updateLastUpstreamResponse(response);
 
     const contentType = response.headers.get('content-type') || '';
     if (body.stream && contentType.includes('text/event-stream')) {
@@ -2569,6 +2699,78 @@ function buildHeaders(config, apiKey) {
   }
 
   return headers;
+}
+
+function captureLastUpstreamRequest(snapshot) {
+  const bodyText = safeJsonStringify(snapshot.body);
+  lastUpstreamRequestSnapshot = {
+    capturedAt: new Date().toISOString(),
+    extensionVersion: EXTENSION_VERSION,
+    note: LAST_UPSTREAM_REQUEST_NOTE,
+    kind: snapshot.kind,
+    method: snapshot.method,
+    url: snapshot.url,
+    modelConfig: snapshot.modelConfig,
+    headers: redactHeaders(snapshot.headers),
+    body: safeJsonParse(redactSecrets(bodyText)) ?? redactSecrets(bodyText),
+    bodyBytes: Buffer.byteLength(bodyText, 'utf8'),
+    response: undefined
+  };
+}
+
+function updateLastUpstreamResponse(response, text) {
+  if (!lastUpstreamRequestSnapshot) {
+    return;
+  }
+
+  lastUpstreamRequestSnapshot.response = {
+    capturedAt: new Date().toISOString(),
+    status: response.status,
+    statusText: response.statusText || '',
+    headers: redactHeaders(Object.fromEntries(response.headers.entries())),
+    body: text === undefined ? undefined : redactSecrets(String(text)).slice(0, 5000)
+  };
+}
+
+async function copyLastUpstreamRequestCommand() {
+  if (!lastUpstreamRequestSnapshot) {
+    vscode.window.showWarningMessage('No Matrix OAI upstream request has been captured yet. Reproduce the request once, then run this command again.');
+    return;
+  }
+
+  const text = JSON.stringify(lastUpstreamRequestSnapshot, null, 2);
+  await vscode.env.clipboard.writeText(text);
+  output?.appendLine(`[${new Date().toISOString()}] [INFO] Last upstream request copied to clipboard (${Buffer.byteLength(text, 'utf8')} bytes).`);
+  vscode.window.showInformationMessage('Matrix OAI: copied last upstream request to clipboard. Authorization is redacted.');
+}
+
+function redactHeaders(headers) {
+  const result = {};
+  for (const [key, value] of Object.entries(headers || {})) {
+    const lower = key.toLowerCase();
+    if (lower === 'authorization' || lower === 'x-api-key' || lower.includes('token') || lower.includes('secret')) {
+      result[key] = '***REDACTED***';
+    } else {
+      result[key] = redactSecrets(String(value));
+    }
+  }
+  return result;
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function formatUpstreamError(status, text) {
@@ -2834,6 +3036,7 @@ function resolveToolAlias(name, input, context) {
     search_files: ['file_search', 'grep_search'],
     read: ['read_file'],
     write_file: ['create_file', 'write_workspace_file'],
+    write_to_file: ['create_file', 'write_workspace_file'],
     run_subprocess: ['run_in_terminal', 'run_terminal_command'],
     shell: ['run_in_terminal', 'run_terminal_command'],
     terminal: ['run_in_terminal', 'run_terminal_command']
@@ -2882,6 +3085,24 @@ function coerceAliasedToolInput(sourceName, targetName, input, context) {
   if (['list_files', 'list_file', 'list_directory'].includes(source)) {
     const path = input?.path || input?.filePath || input?.directory || '.';
     setPreferredPath(next, targetName, path, context);
+  }
+
+  if (['write_file', 'write_to_file'].includes(source)) {
+    const path = input?.path || input?.filePath || input?.file_path || input?.filename || input?.file || input?.uri || '.';
+    const content = input?.content ?? input?.text ?? input?.contents ?? input?.file_content ?? input?.newContent ?? input?.data;
+    setPreferredPath(next, targetName, path, context);
+    if (content !== undefined) {
+      next.content = content;
+    }
+    delete next.file_path;
+    delete next.filename;
+    delete next.file;
+    delete next.uri;
+    delete next.text;
+    delete next.contents;
+    delete next.file_content;
+    delete next.newContent;
+    delete next.data;
   }
 
   if (['run_subprocess', 'shell', 'terminal'].includes(source)) {
@@ -5129,6 +5350,8 @@ function showConfigPanel() {
       await resetUsageStats();
     } else if (message.command === 'checkBalance') {
       await checkBalanceCommand();
+    } else if (message.command === 'toggleModelPickerVisibility') {
+      await toggleModelPickerVisibility(message.index);
     }
     refreshConfigPanel();
   });
@@ -5141,6 +5364,28 @@ function refreshConfigPanel() {
     return;
   }
   proxyPanel.webview.html = renderConfigHtml();
+}
+
+async function toggleModelPickerVisibility(index) {
+  const modelIndex = Number(index);
+  const models = getConfig().get('models', []);
+  if (!Number.isInteger(modelIndex) || modelIndex < 0 || modelIndex >= models.length) {
+    vscode.window.showWarningMessage('Matrix OAI model visibility toggle failed: invalid model index.');
+    return;
+  }
+
+  const model = { ...models[modelIndex] };
+  const visible = modelVisibleInPicker(model);
+  model.showInModelPicker = !visible;
+  model.hidden = visible;
+  model.isUserSelectable = !visible;
+  model.visible = !visible;
+  models[modelIndex] = model;
+
+  await getConfig().update('models', models, vscode.ConfigurationTarget.Global);
+  chatProvider?.refreshModelPicker();
+  vscode.commands.executeCommand('workbench.action.chat.refreshModels').then(undefined, () => undefined);
+  logInfo(`Model picker visibility changed: ${model.name || model.id} -> ${!visible ? 'visible' : 'hidden'}.`);
 }
 
 function renderConfigHtml() {
@@ -5166,19 +5411,25 @@ function renderConfigHtml() {
     </tr>
   `).join('');
 
-  const modelRows = models.map((rawModel) => resolveModel(rawModel)).map((model) => `
-    <tr>
-      <td>${escapeHtml(model.name || model.id)}</td>
-      <td><code>${escapeHtml(publicModelId(model))}</code></td>
-      <td><code>${escapeHtml(model.providerId || '')}</code></td>
-      <td>${escapeHtml(model.baseUrl)}</td>
-      <td>${escapeHtml(formatCompactNumber(contextLimitForModel(publicModelId(model)) || model.maxInputTokens || model.context_length || 0))}</td>
-      <td>${escapeHtml(formatCompactNumber(model.maxOutputTokens || model.max_tokens || model.maxTokens || 0))}</td>
-      <td>${model.supportsTools !== false ? 'Yes' : 'No'}</td>
-      <td>${modelSupportsImages(model) ? 'Yes' : 'No'}</td>
-      <td>${shouldReplayReasoningContent(model) ? 'Auto' : 'Off'}</td>
-    </tr>
-  `).join('');
+  const modelRows = models.map((rawModel, index) => {
+    const model = resolveModel(rawModel);
+    const pickerVisible = modelVisibleInPicker(rawModel);
+    return `
+      <tr>
+        <td>${escapeHtml(model.name || model.id)}</td>
+        <td><code>${escapeHtml(publicModelId(model))}</code></td>
+        <td><code>${escapeHtml(model.providerId || '')}</code></td>
+        <td>${escapeHtml(model.baseUrl)}</td>
+        <td>${escapeHtml(formatCompactNumber(contextLimitForModel(publicModelId(model)) || model.maxInputTokens || model.context_length || 0))}</td>
+        <td>${escapeHtml(formatCompactNumber(model.maxOutputTokens || model.max_tokens || model.maxTokens || 0))}</td>
+        <td>${model.supportsTools !== false ? 'Yes' : 'No'}</td>
+        <td>${modelSupportsImages(model) ? 'Yes' : 'No'}</td>
+        <td>${shouldReplayReasoningContent(model) ? 'Auto' : 'Off'}</td>
+        <td><span class="${pickerVisible ? 'ok' : 'off'}">${pickerVisible ? 'Visible' : 'Hidden'}</span></td>
+        <td><button class="icon-button" title="${pickerVisible ? 'Hide from model picker' : 'Show in model picker'}" aria-label="${pickerVisible ? 'Hide from model picker' : 'Show in model picker'}" onclick="toggleModel(${index})">${pickerVisible ? eyeOffIcon() : eyeIcon()}</button></td>
+      </tr>
+    `;
+  }).join('');
 
   const usageRows = Object.entries(stats.byModel || {}).map(([model, row]) => `
     <tr>
@@ -5209,6 +5460,9 @@ function renderConfigHtml() {
     .value { font-size: 18px; margin-top: 4px; }
     button { margin: 4px 6px 4px 0; padding: 6px 10px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 4px; cursor: pointer; }
     button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    button.small { padding: 3px 8px; margin: 0; }
+    .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; margin: 0; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    .icon-button svg { width: 16px; height: 16px; stroke: currentColor; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     th, td { text-align: left; border-bottom: 1px solid var(--vscode-panel-border); padding: 7px 6px; vertical-align: top; }
     th { color: var(--vscode-descriptionForeground); font-weight: 600; }
@@ -5290,8 +5544,8 @@ function renderConfigHtml() {
 
   <h2>OAI-Compatible Models</h2>
   <table>
-    <tr><th>Name</th><th>Proxy Model ID</th><th>Provider ID</th><th>Base URL</th><th>Context</th><th>Max Out</th><th>Tools</th><th>Images</th><th>Reasoning Replay</th></tr>
-    ${modelRows || '<tr><td colspan="9">No configured models.</td></tr>'}
+    <tr><th>Name</th><th>Proxy Model ID</th><th>Provider ID</th><th>Base URL</th><th>Context</th><th>Max Out</th><th>Tools</th><th>Images</th><th>Reasoning Replay</th><th>Picker</th><th>Action</th></tr>
+    ${modelRows || '<tr><td colspan="11">No configured models.</td></tr>'}
   </table>
 
   <h2>Usage</h2>
@@ -5303,6 +5557,7 @@ function renderConfigHtml() {
   <script>
     const vscode = acquireVsCodeApi();
     function send(command) { vscode.postMessage({ command }); }
+    function toggleModel(index) { vscode.postMessage({ command: 'toggleModelPickerVisibility', index }); }
   </script>
 </body>
 </html>`;
@@ -5317,6 +5572,14 @@ function proxyEndpoints() {
     anthropic: `http://${host}:${port}/v1/messages`,
     models: `http://${host}:${port}/v1/models`
   };
+}
+
+function eyeIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+}
+
+function eyeOffIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A2 2 0 0 0 13.4 13.4"></path><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.1 4.2"></path><path d="M6.4 6.4C3.6 8.3 2 12 2 12s3.5 7 10 7a10.8 10.8 0 0 0 4.1-.8"></path></svg>';
 }
 
 function updateStatusBar() {

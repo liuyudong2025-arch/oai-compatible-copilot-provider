@@ -4,7 +4,7 @@
 
 ### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-[![Version](https://img.shields.io/badge/version-0.3.2-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![Version](https://img.shields.io/badge/version-0.3.9-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 
@@ -120,6 +120,41 @@ Matrix OAI Gateway: Add Model         → custom model config
 ### 4. Start coding
 
 Open Copilot Chat → click the model picker → select your model → done! 🎉
+
+---
+
+## Model Visibility
+
+VS Code 1.121 does not expose its native eye-icon visibility toggle to ordinary third-party language model providers. Matrix OAI manages picker visibility in its own configuration panel.
+
+Open Command Palette (`Ctrl+Shift+P`):
+
+```
+Matrix OAI Gateway: Configuration
+```
+
+In **OAI-Compatible Models**, use the eye icon in the **Action** column to show or hide each model from the Copilot model picker.
+
+Matrix OAI also supports default visibility in model config:
+
+```jsonc
+"matrixOaiCopilot.models": [
+  {
+    "id": "deepseek-v4-flash",
+    "providerId": "deepseek",
+    "showInModelPicker": true
+  },
+  {
+    "id": "glm-5.1-anthr",
+    "providerId": "zhipu-anthropic",
+    "showInModelPicker": false
+  }
+]
+```
+
+Compatibility aliases are also accepted: `hidden`, `visible`, and `isUserSelectable`.
+
+Hidden models stay configured for the local proxy, Codex config generation, Claude Code mappings, and vision proxy selection. They are only removed from the VS Code/Copilot model picker.
 
 ---
 
