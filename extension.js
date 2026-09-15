@@ -455,7 +455,13 @@ class OaiCompatibleChatProvider {
     if (token?.isCancellationRequested) {
       return 0;
     }
-    return estimateTokens(typeof text === 'string' ? text : JSON.stringify(text));
+    const count = estimateMessageTokens(text);
+    // VS Code caches token counts aggressively, so this line is the only
+    // visibility we get into why a model is considered out of context.
+    if (containsBinaryPayload(text)) {
+      logDebug(`Token count for ${model?.id || 'model'}: ${formatNumber(count)} (binary/image payload detected; costed per image, not per base64 byte).`);
+    }
+    return count;
   }
 }
 
@@ -844,19 +850,35 @@ function isDeepSeekModel(config) {
 
 async function prepareCopilotMessages(config, messages) {
   const imageParts = countVsCodeImageParts(messages);
+  const toolImageParts = countImagesInToolResults(messages);
   const supportsImages = modelSupportsImages(config);
   const visionProxyEnabled = getConfig().get('copilot.enableVisionProxy', true);
 
   if (imageParts > 0) {
-    logInfo(`Provider request has ${imageParts} VS Code image part(s) for ${config.name || config.id}; supportsImages=${supportsImages}; visionProxy=${visionProxyEnabled}.`);
+    logInfo(`Provider request has ${imageParts} VS Code image part(s) for ${config.name || config.id}; supportsImages=${supportsImages}; visionProxy=${visionProxyEnabled}; toolResultImages=${toolImageParts}.`);
   }
 
   if (supportsImages || !visionProxyEnabled || imageParts === 0) {
     return messages;
   }
 
-  logInfo(`Vision proxy will describe ${imageParts} image part(s) before sending to ${config.name || config.id}.`);
+  logInfo(`Vision proxy will describe ${imageParts} image part(s) (${toolImageParts} inside tool results) before sending to ${config.name || config.id}.`);
   return describeImagesForTextModel(messages);
+}
+
+// Counts images that arrive nested inside tool results. These used to be
+// invisible to the vision proxy, which let raw base64 reach the upstream model.
+function countImagesInToolResults(messages) {
+  let count = 0;
+  for (const message of messages || []) {
+    for (const part of message.content || []) {
+      if (isToolResultPart(part)) {
+        const items = Array.isArray(part.content) ? part.content : [part.content];
+        count += countImagesInParts(items);
+      }
+    }
+  }
+  return count;
 }
 
 function messagesContainImages(messages) {
@@ -864,12 +886,21 @@ function messagesContainImages(messages) {
 }
 
 function countVsCodeImageParts(messages) {
+  return messages.reduce((count, message) => count + countImagesInParts(message.content), 0);
+}
+
+// Images can arrive nested inside tool results (e.g. the built-in `view_image`
+// tool), not just as direct message content, so counting has to recurse.
+function countImagesInParts(parts) {
   let count = 0;
-  for (const message of messages || []) {
-    for (const part of message.content || []) {
-      if (isImageDataPart(part)) {
-        count++;
-      }
+  for (const part of parts || []) {
+    if (isImageDataPart(part)) {
+      count++;
+      continue;
+    }
+    if (isToolResultPart(part)) {
+      const items = Array.isArray(part.content) ? part.content : [part.content];
+      count += countImagesInParts(items);
     }
   }
   return count;
@@ -903,18 +934,59 @@ function modelSupportsImages(model) {
 async function describeImagesForTextModel(messages) {
   const result = [];
   for (const message of messages || []) {
-    const content = [];
-    for (const part of message.content || []) {
-      if (!isImageDataPart(part)) {
-        content.push(part);
-        continue;
-      }
-      const description = await describeImagePart(part);
-      content.push(new vscode.LanguageModelTextPart(`\n[Image description]\n${description}\n[/Image description]\n`));
-    }
+    const content = await describeImagesInParts(message.content);
     result.push(new vscode.LanguageModelChatMessage(message.role, content));
   }
   return result;
+}
+
+// Replaces every image part with a text description, recursing into tool
+// results so images produced by tools are described too. Without this, a
+// tool-returned image is serialized as raw base64 and blows the context window.
+async function describeImagesInParts(parts) {
+  const content = [];
+  for (const part of parts || []) {
+    if (isImageDataPart(part)) {
+      const description = await describeImagePart(part);
+      content.push(new vscode.LanguageModelTextPart(`\n[Image description]\n${description}\n[/Image description]\n`));
+      continue;
+    }
+    if (isToolResultPart(part)) {
+      content.push(await describeImagesInToolResult(part));
+      continue;
+    }
+    content.push(part);
+  }
+  return content;
+}
+
+async function describeImagesInToolResult(part) {
+  const items = Array.isArray(part.content) ? part.content : [part.content];
+  const imageCount = countImagesInParts(items);
+  const binaryCount = items.filter((item) => item?.data && !isImageDataPart(item)).length;
+  if (imageCount === 0 && binaryCount === 0) {
+    return part;
+  }
+
+  const toolName = part.toolName || part.name || 'unknown';
+  logInfo(`Vision proxy handling tool result (tool=${toolName}): ${imageCount} image(s), ${binaryCount} other binary part(s).`);
+
+  const converted = [];
+  for (const item of items) {
+    if (isImageDataPart(item)) {
+      const description = await describeImagePart(item);
+      converted.push(new vscode.LanguageModelTextPart(`[Image description]\n${description}\n[/Image description]`));
+      continue;
+    }
+    if (item?.data) {
+      logInfo(`Vision proxy omitted non-image binary payload (${item.mimeType || 'unknown'}) from tool result of ${toolName}.`);
+      converted.push(new vscode.LanguageModelTextPart(`[${item.mimeType || 'binary'} content omitted]`));
+      continue;
+    }
+    converted.push(item);
+  }
+
+  return { ...part, content: converted };
 }
 
 async function describeImagePart(part) {
@@ -1356,7 +1428,14 @@ function safeContentToText(item) {
   if (isTextPart(item)) {
     return item.value || '';
   }
-  if (isCacheControlPart(item) || isNonImageDataPart(item)) {
+  if (isCacheControlPart(item)) {
+    return '';
+  }
+  // Never serialize binary payloads into the prompt. JSON.stringify()ing a
+  // base64 image produces megabytes of meaningless text and overflows the
+  // model's context window.
+  if (item?.data) {
+    logDebug(`Dropped binary payload from tool result text (mimeType=${item.mimeType || 'unknown'}, dataType=${item.data?.constructor?.name || typeof item.data}).`);
     return '';
   }
   if (item?.type === 'text' || item?.type === 'input_text' || item?.type === 'output_text') {
@@ -2690,6 +2769,7 @@ function buildHeaders(config, apiKey) {
   const headers = {
     'content-type': 'application/json',
     accept: 'text/event-stream, application/json',
+    'user-agent': `MatrixOAI-Gateway/${EXTENSION_VERSION} VSCode-Extension`,
     ...defaultHeaders,
     ...(config.headers || {})
   };
@@ -6017,6 +6097,156 @@ async function setCodexModelMappingCommand() {
 
 function estimateTokens(text) {
   return Math.ceil(String(text || '').length / 4);
+}
+
+// Default per-image token cost, roughly matching how vision models bill a
+// medium-resolution image. VS Code may also pass `imageOptions` describing
+// the resized dimensions, which we prefer when available.
+const DEFAULT_IMAGE_TOKENS = 1100;
+// Anything longer than this that looks like base64 is treated as binary payload
+// rather than text — prose never contains such long uninterrupted runs.
+const BASE64_RUN_THRESHOLD = 512;
+// Maximum number of tokens we will ever report for a single part. Prevents a
+// pathological payload from making VS Code believe the context is exhausted
+// (which silently disables the model in the picker).
+const MAX_PART_TOKENS = 2_000_000;
+
+// Detects base64-encoded payloads conservatively. A false positive would
+// under-count a genuinely long text part, so we additionally require encoded
+// length alignment and a mixed alphabet — real base64 essentially always
+// contains both cases and digits, whereas a run of the same character does not.
+function isBase64Shaped(value) {
+  if (typeof value !== 'string' || value.length < BASE64_RUN_THRESHOLD) {
+    return false;
+  }
+  if (value.length % 4 !== 0) {
+    return false;
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    return false;
+  }
+  const hasLower = /[a-z]/.test(value);
+  const hasUpper = /[A-Z]/.test(value);
+  const hasDigit = /[0-9]/.test(value);
+  return (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0) >= 2;
+}
+
+// Images are billed by pixel dimensions, not by the length of their base64
+// encoding. Estimating an image from its byte length overstates the cost by
+// three orders of magnitude and makes Copilot Agent reject the whole session.
+function estimateImageTokens(part) {
+  const options = part?.imageOptions || part?.image_options || part?.options;
+  const width = Number(options?.width || options?.originalWidth);
+  const height = Number(options?.height || options?.originalHeight);
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    // Same shape as the Anthropic/OpenAI image pricing formula: a fixed tile
+    // cost plus a term proportional to the pixel count.
+    return Math.max(85, Math.ceil(85 + (width * height) / 750));
+  }
+  return DEFAULT_IMAGE_TOKENS;
+}
+
+function estimateDataPartTokens(part) {
+  if (isImageDataPart(part)) {
+    return estimateImageTokens(part);
+  }
+  // Non-image binary payloads (PDFs, audio, ...) must never be charged by
+  // their base64 length either.
+  if (part?.data) {
+    return DEFAULT_IMAGE_TOKENS;
+  }
+  return 0;
+}
+
+// Cheap structural probe used only to decide whether a diagnostic log line is
+// worth emitting. It never influences the returned token count.
+function containsBinaryPayload(value, depth = 0) {
+  if (!value || depth > 6) {
+    return false;
+  }
+  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    return true;
+  }
+  if (typeof value === 'string') {
+    return isBase64Shaped(value);
+  }
+  if (typeof value !== 'object') {
+    return false;
+  }
+  if (value.data) {
+    return true;
+  }
+  if (typeof value.value === 'string' && isBase64Shaped(value.value)) {
+    return true;
+  }
+  if (Array.isArray(value.content)) {
+    return value.content.some((item) => containsBinaryPayload(item, depth + 1));
+  }
+  if (value.content !== undefined) {
+    return containsBinaryPayload(value.content, depth + 1);
+  }
+  return false;
+}
+
+// Token estimation entry point for everything VS Code asks us to count. It
+// understands LanguageModelChatMessage / parts as well as plain strings, and
+// deliberately never charges base64 payloads as if they were text.
+function estimateMessageTokens(value) {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+
+  if (typeof value === 'string') {
+    return Math.min(MAX_PART_TOKENS, isBase64Shaped(value) ? DEFAULT_IMAGE_TOKENS : estimateTokens(value));
+  }
+
+  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    return DEFAULT_IMAGE_TOKENS;
+  }
+
+  if (Array.isArray(value)) {
+    return sumClamped(value.map((item) => estimateMessageTokens(item)));
+  }
+
+  if (typeof value === 'object') {
+    const own = estimateDataPartTokens(value);
+    if (own > 0) {
+      return own;
+    }
+    // LanguageModelTextPart exposes `.value`
+    if (typeof value.value === 'string') {
+      return estimateMessageTokens(value.value);
+    }
+    if (typeof value.text === 'string') {
+      return estimateMessageTokens(value.text);
+    }
+    // LanguageModelChatMessage exposes `.content`
+    if (Array.isArray(value.content)) {
+      return estimateMessageTokens(value.content);
+    }
+    // Tool result parts wrap their payload in `content`
+    if (value.content !== undefined) {
+      return estimateMessageTokens(value.content);
+    }
+    try {
+      return estimateMessageTokens(JSON.stringify(value));
+    } catch {
+      return 0;
+    }
+  }
+
+  return estimateTokens(value);
+}
+
+function sumClamped(values) {
+  let total = 0;
+  for (const value of values) {
+    total += value;
+    if (total >= MAX_PART_TOKENS) {
+      return MAX_PART_TOKENS;
+    }
+  }
+  return total;
 }
 
 function logInfo(message) {

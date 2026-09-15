@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.11 - 2026-09-15
+
+### English
+
+- **Fixed: images returned by tools bypassed the vision proxy.** Images produced by tools (for example the built-in `view_image`) live inside a *tool result*, not in the message content. The vision proxy only walked `message.content`, so those images were never described and were instead serialized as raw base64 into the prompt. A `view_image` result of ~375 KB became a ~3 MB JSON string, pushing a single request to 5.5 MB and producing `Upstream API returned 400: ... you requested 3881098 tokens`. The vision proxy now recurses into tool results and replaces each image with a text description.
+- **Fixed: image parts were serialized into the prompt as base64 JSON.** `safeContentToText()` fell through to `JSON.stringify()` for image parts, so a tool-returned image was injected into the prompt as megabytes of base64. Binary payloads are now dropped from tool-result text.
+- **Fixed: `provideTokenCount` grossly over-counted images, making models look out of context.** The old implementation was `Math.ceil(text.length / 4)` applied to everything, including base64 image data. Measured on 10 real 3.6 MB screenshots it reported **11,142,805 tokens** against a true cost of roughly **12,000** — a **928x** overestimate. Copilot Chat therefore rejected the session before it was ever sent. Token counting is now structure-aware:
+  - Images are costed from pixel dimensions when available (`85 + width * height / 750`), otherwise a flat per-image constant.
+  - Non-image binary payloads are never charged by their base64 length.
+  - Base64 strings are detected conservatively (length ≥ 512, length divisible by 4, valid alphabet, and a mixed character class), so ordinary long text is still counted as text.
+  - A per-part ceiling prevents a pathological payload from reporting an impossible token count.
+- **Added diagnostics for this failure mode.** Requests now log how many images were found *inside tool results* versus direct message content, which tool result the vision proxy is rewriting, and any binary payload that was dropped. A token-count log line is emitted when a binary payload is detected.
+
+### Chinese
+
+- **修复：工具返回的图片绕过了视觉代理。** 由工具（例如内置的 `view_image`）产生的图片存在于**工具结果**里，而不是 message content 里。视觉代理只遍历 `message.content`，因此这些图片从未被描述，反而被序列化成原始 base64 塞进提示词。一个约 375 KB 的 `view_image` 结果会变成约 3 MB 的 JSON 字符串，单次请求达到 5.5 MB，最终返回 `Upstream API returned 400: ... you requested 3881098 tokens`。视觉代理现在会递归进入工具结果，把每张图片替换成文字描述。
+- **修复：图片 part 被当作 base64 JSON 序列化进提示词。** `safeContentToText()` 对图片 part 会落到 `JSON.stringify()`，导致工具返回的图片以数 MB base64 的形式注入提示词。现在工具结果中的二进制负载会被直接丢弃。
+- **修复：`provideTokenCount` 严重高估图片 token，导致模型被误判为超出上下文。** 旧实现是 `Math.ceil(text.length / 4)`，对包括 base64 图片数据在内的一切内容生效。用 10 张真实的 3.6 MB 截图实测，它报出 **11,142,805 tokens**，而真实开销约为 **12,000**，**高估 928 倍**。于是 Copilot Chat 在请求发出前就直接拒绝了整轮会话。现在 token 计算会感知数据结构：
+  - 图片在能拿到像素尺寸时按尺寸计算（`85 + width * height / 750`），否则使用每张图的固定常数。
+  - 非图片的二进制负载不再按其 base64 长度计费。
+  - base64 采用保守识别（长度 ≥ 512、长度可被 4 整除、字符集合法、且字符类别混合），普通长文本仍按文本计数。
+  - 单个 part 设有上限，避免异常负载报出不可能的 token 数。
+- **针对此类故障新增诊断日志。** 请求现在会记录：工具结果内部发现了多少张图片（与直接消息内容中的图片分开统计）、视觉代理正在改写哪个工具结果、以及被丢弃的二进制负载。检测到二进制负载时也会输出一行 token 计数日志。
+
+## 0.3.10 - 2026-07-03
+
+### English
+
+- Added an explicit `user-agent` header to upstream OpenAI-compatible requests: `MatrixOAI-Gateway/<version> VSCode-Extension`.
+- The copied last-upstream-request snapshot now includes this header so provider support teams can inspect it without relying on transport-level defaults.
+
+### Chinese
+
+- 上游 OpenAI-compatible 请求现在会显式携带 `user-agent`：`MatrixOAI-Gateway/<version> VSCode-Extension`。
+- `Copy Last Upstream Request` 导出的请求快照也会包含该字段，方便服务商工单排查。
+
 ## 0.3.9 - 2026-07-03
 
 ### English
