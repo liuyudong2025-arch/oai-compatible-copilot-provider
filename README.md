@@ -4,7 +4,7 @@
 
 ### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-[![Version](https://img.shields.io/badge/version-0.3.11-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![Version](https://img.shields.io/badge/version-0.3.51-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 
@@ -89,9 +89,9 @@ API keys stored in **VS Code Secret Storage**, never logged, never exposed in th
 
 ## 📸 Screenshots
 
-<img src="media/screenshot-model-picker.png" width="49%" alt="Copilot Chat Model Picker" /> <img src="media/screenshot-config.png" width="49%" alt="Configuration Panel" />
+<img src="https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/raw/HEAD/media/screenshot-model-picker.png" width="49%" alt="Copilot Chat Model Picker" /> <img src="https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/raw/HEAD/media/screenshot-config.png" width="49%" alt="Configuration Panel" />
 
-<img src="media/screenshot-statusbar.png" width="49%" alt="Status Bar Telemetry" /> <img src="media/screenshot-balance.png" width="49%" alt="Balance Check" />
+<img src="https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/raw/HEAD/media/screenshot-statusbar.png" width="49%" alt="Status Bar Telemetry" /> <img src="https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/raw/HEAD/media/screenshot-balance.png" width="49%" alt="Balance Check" />
 
 ---
 

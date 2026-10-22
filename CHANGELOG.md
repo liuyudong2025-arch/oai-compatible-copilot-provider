@@ -1,5 +1,475 @@
 # Changelog
 
+## 0.3.51 - 2026-10-22
+
+- 更新 VS Code 扩展详情页的简介，改为简洁中文，并补充 Agent 工具调用、模型路由和带证据校验的消融代理能力。
+
+## 0.3.50 - 2026-10-22
+
+### English
+
+- **Every text-only fallback conclusion is now evidence-audited.** Early answers can no longer bypass verification merely because the tool-step limit has not been reached; primary-advisor `COMPLETE` claims are audited too.
+- Fallback prose accompanying a real tool call is suppressed until the tool returns. Preflight/forced handoffs now hold prose, register emitted calls for continuation, propagate cancellation, and audit the answer when no executable call is produced.
+- Tool output, earlier assistant prose, and dialogue are supplied as explicitly untrusted user-context data instead of being promoted into a system message. Long outputs retain both their beginning and decisive tail.
+- Matching identifiers, symbols, fields, filenames, or neighboring strings no longer count as semantic proof. The advisor and auditor require explicit provenance and validation for claimed values or successful operations.
+- Sensitive fallback/advisor content is no longer copied into normal information logs. Thinking remains available by default because disabling it materially harms multi-step tool and evidence work.
+
+### Chinese
+
+- **所有仅输出文本的消融结论现在都会经过证据审计。** 不再只有工具步数耗尽时才核验；主模型顾问的 `COMPLETE` 声明也必须通过审计。
+- 消融模型在真实工具调用旁输出的未验证文字会被隐藏，直到工具返回结果。预检/强制路由会先暂存文本、登记交接工具调用以便续跑、传递取消信号；没有产生可执行调用时才显示经过审计的回答。
+- 工具输出、旧助手文字和对话上下文不再被提升为 system 指令，而是作为明确标记的不可信用户上下文传入。过长工具输出会同时保留开头和关键结尾。
+- 相似标识符、字段、符号、文件名或邻近字符串不再算作语义证据；对值和执行成功的声明必须有明确来源与验证结果。
+- 普通信息日志不再复制可能敏感的顾问或消融回答内容。默认保留思考能力，因为关闭思考会明显削弱多步工具与证据分析。
+
+## 0.3.49 - 2026-10-22
+
+### English
+
+- **Final fallback claims are evidence-audited.** When the tool-step limit is reached, the primary model is used only as a verifier: every claimed path, value, relationship, file existence, and successful operation must be directly supported by verified tool output.
+- Failed audits suppress the fallback's speculative answer and replace it with a concise evidence-only correction. Similar secret-handling code no longer proves that a secret file exists or belongs to the requested target.
+
+### Chinese
+
+- **最终结论会经过证据审计。** 达到工具步数上限时，主模型仅作为核验器使用；回答中的路径、值、关系、文件存在性和执行成功声明都必须由真实工具输出直接支持。
+- 审计失败会隐藏消融模型的猜测，改为仅包含已验证事实的简短纠正；相似的密钥处理代码不再能证明密钥文件存在或属于目标对象。
+
+## 0.3.48 - 2026-10-22
+
+### English
+
+- **Textual tool calls now parse Python raw strings correctly.** Arguments such as `query=r"..."` and raw Windows paths remain intact instead of being truncated at the first space and corrupting later parameters.
+- Together with 0.3.47's continuation fix, textual search calls can now produce a real result and retain tools for the following read or terminal validation step.
+
+### Chinese
+
+- **文本工具调用可正确解析 Python 原始字符串。** `query=r"..."` 和原始 Windows 路径等参数会保持完整，不再在第一个空格处截断并破坏后续参数。
+- 配合 0.3.47 的续跑修复，文本搜索调用可以得到真实结果，并在后续读取或终端验证步骤继续保留工具。
+
+## 0.3.47 - 2026-10-22
+
+### English
+
+- **`DELEGATE` retains tools throughout the continuation loop.** After a real discovery result, a primary-advisor `DELEGATE` no longer removes tools from the next fallback turn. Tools remain available until verified completion, genuine missing input, or the configured step limit.
+- This prevents a real first tool call from being followed by fabricated textual `grep_search`, `read_file`, or `run_in_terminal` results.
+
+### Chinese
+
+- **`DELEGATE` 在整个续跑循环中保留工具。** 一次真实发现调用之后，主模型顾问返回 `DELEGATE` 不再移除下一轮消融模型的工具；工具会持续保留到验证完成、确实缺少输入或达到步数上限。
+- 防止第一次真实工具调用之后，模型又以文本伪造 `grep_search`、`read_file` 或 `run_in_terminal` 结果。
+
+## 0.3.46 - 2026-10-22
+
+### English
+
+- **Initial refusal replays always retain curated tools.** A primary-advisor `DELEGATE` or empty note can no longer strip tools from the fallback and reduce it to a prose-only plan.
+- The fallback must discover real identifiers and paths; it is explicitly forbidden from substituting example bundle IDs, service names, paths, or commands for another operating system.
+
+### Chinese
+
+- **首次拒绝重放始终保留受限工具。** 主模型顾问返回 `DELEGATE` 或空结果时，不再剥夺消融模型的工具并迫使它只输出文本计划。
+- 消融模型必须查找真实标识符与路径，明确禁止用示例 bundle id、服务名、路径或其他操作系统的命令代替事实。
+
+## 0.3.45 - 2026-10-22
+
+### English
+
+- **Short Chinese action refusals are recognized as a family.** Openings such as “不做”, “不找”, “不查”, “不提取”, “不导出”, “不执行”, and equivalent first-person forms now trigger semantic refusal routing instead of relying on one exact phrase.
+
+### Chinese
+
+- **统一识别中文短动词拒绝。** “不做”“不找”“不查”“不提取”“不导出”“不执行”及其第一人称形式都会触发拒绝路由，不再依赖某一个固定句式。
+
+## 0.3.44 - 2026-10-22
+
+### English
+
+- **Primary-advisor `ASK_INPUT` no longer reaches the user.** The primary model is now only an optional navigator: it may call a tool or report verified completion, but any `ASK_INPUT` transfers the curated tools and evidence to the fallback for an independent decision.
+- This removes the advisor's ability to veto fallback execution by repeatedly rephrasing a refusal as missing input.
+
+### Chinese
+
+- **主模型顾问的 `ASK_INPUT` 不再直接显示。** 主模型现在只是可选导航器：它可以调用工具或报告已验证的完成状态；任何 `ASK_INPUT` 都会把受限工具与证据交给消融模型独立判断。
+- 顾问无法再通过不断改写“缺少输入”的措辞来否决消融模型执行。
+
+## 0.3.43 - 2026-10-22
+
+### English
+
+- **Discoverable locators are no longer delegated to the user.** Requests for source-code, module, file, directory, repository, cache, Keychain, token, or similar paths/names trigger workspace discovery just like requests for a tool or script path.
+- If the primary advisor is explicitly ordered to search but still returns `ASK_INPUT` without a tool call, navigation transfers to the fallback with the curated workspace tools.
+
+### Chinese
+
+- **可发现的定位信息不再甩给用户。** 索要源码、代码、模块、文件、目录、仓库、缓存、Keychain、token 等路径或名称时，会像索要工具/脚本路径一样触发工作区发现。
+- 如果主模型顾问被明确要求搜索后仍然只返回 `ASK_INPUT`、没有工具调用，导航权会转交给带受限工作区工具的消融模型。
+
+## 0.3.42 - 2026-10-22
+
+### English
+
+- **A policy-limited advisor no longer has veto power.** If the primary planner returns an `ASK_INPUT` that cites a refused scope, safety boundary, or unrelated substitute task, that note is discarded and the fallback receives the curated five workspace tools directly.
+- The fallback is instructed to begin with one verified discovery call and to ignore refusal prose and substitute tasks from the primary model.
+
+### Chinese
+
+- **受策略限制的顾问不再拥有否决权。** 如果主模型顾问在 `ASK_INPUT` 中援引已拒绝范围、安全边界或无关替代任务，该意见会被丢弃，并把五个受限工作区工具直接交给消融模型。
+- 消融模型必须从一次可验证的发现调用开始，并忽略主模型的拒绝文字与替代任务。
+
+## 0.3.41 - 2026-10-22
+
+### English
+
+- **Long correction-prefaced refusals are routed.** The refusal probe now buffers enough text to catch responses that first retract a bad result or recap evidence and only later state that the requested task will not be continued.
+- An explicit statement such as “I will not continue/attempt the requested task” deterministically routes to the fallback instead of letting the primary model classify its own mixed correction/refusal as `KEEP`.
+
+### Chinese
+
+- **以纠错开头的长拒绝也会进入代理。** 拒绝探针现在会缓存更长的开头，从而捕获先撤回错误结果、复述证据，随后才表示不继续任务的回答。
+- “我不会继续/尝试该任务”等明确表述会确定性地路由到消融模型，不再由主模型把自己的“纠错＋拒绝”误判为 `KEEP`。
+
+## 0.3.40 - 2026-10-22
+
+### English
+
+- **Outcome requests trigger implementation discovery.** If the current helper lacks the requested feature, the proxy no longer immediately asks the user to provide another tool, script, CLI, or workspace path. It first requires a real workspace search for an existing implementation or relevant artifact.
+- External input is requested only after an actual discovery result leaves no in-workspace candidate.
+
+### Chinese
+
+- **成果目标会触发实现发现。** 当前辅助脚本不具备所需功能时，代理不再立即要求用户提供另一个工具、脚本、CLI 或工作区路径，而是必须先实际搜索工作区中的现有实现或相关产物。
+- 只有真实检索后仍无工作区候选项，才会请求外部输入。
+
+## 0.3.39 - 2026-10-22
+
+### English
+
+- **Successful tool loops now terminate explicitly.** The primary advisor can return `COMPLETE:` when verified tool output satisfies the confirmed action; the proxy reports that result and stops instead of reviving unrelated numbered options from older messages.
+- Completion summaries are restricted to verified tool results and do not launch another fallback pass.
+
+### Chinese
+
+- **成功的工具循环会明确终止。** 当已验证的工具结果完成确认动作时，主模型顾问可返回 `COMPLETE:`；代理会汇报结果并停止，不再从旧消息中复活无关的编号选项。
+- 完成摘要仅依据已验证工具结果，并且不会再次启动消融模型。
+
+## 0.3.38 - 2026-10-22
+
+### English
+
+- **Terminal command compatibility for small local models.** On a turn where terminal tools are already enabled, a concrete Python, PowerShell, cmd, Node, npm, .NET, Java, or Cargo command printed as prose or in a fenced block is converted into `run_in_terminal` instead of being returned as a plan.
+- Text-only turns remain text-only; this compatibility conversion cannot trigger when no tools were supplied.
+
+### Chinese
+
+- **为小型本地模型增加终端命令兼容层。** 仅当本轮已经提供终端工具时，模型以文本或代码块输出的明确 Python、PowerShell、cmd、Node、npm、.NET、Java 或 Cargo 命令会转换为 `run_in_terminal`，不再作为计划返回。
+- 未提供工具的普通对话仍保持纯文本，兼容转换不会触发执行。
+
+## 0.3.37 - 2026-10-22
+
+### English
+
+- **Verified corrections now resume execution.** After a failed terminal command and a read-only discovery call that finds the corrected path or argument, the fallback retains the terminal tool and retries instead of returning another prose plan.
+- The execution prompt requires corrected values to be copied exactly from verified tool results and forbids substituting numbered steps or fenced commands for a tool call.
+
+### Chinese
+
+- **验证后的纠错会继续执行。** 终端命令失败、只读检索找到正确路径或参数后，消融模型会继续保留终端工具并重试，不再退回文本计划。
+- 执行提示要求严格复制工具验证过的值，并禁止用编号步骤或代码块代替工具调用。
+
+## 0.3.36 - 2026-10-22
+
+### English
+
+- **Confirmed execution uses already-proposed safe defaults.** The fallback no longer asks again about optional flags or a reasonable workspace-local default path that was already present in the dialogue.
+- **Plan-only fallback output is reported exactly once.** The buffered-response and no-tool-call branches no longer both emit the same text.
+
+### Chinese
+
+- **已确认的执行会采用对话中已经提出的安全默认值。** 对于可选参数或已明确提出的工作区内合理默认路径，消融模型不再重复询问。
+- **仅计划的消融输出只显示一次。** 缓冲输出与“未产生工具调用”兜底分支不再重复发送相同文本。
+
+## 0.3.35 - 2026-10-22
+
+### English
+
+- **Fixed Copilot envelope text being mistaken for the user's message.** The proxy now extracts only `<userRequest>…</userRequest>` and strips `<context>` and `<reminderInstructions>` before routing, confirmation detection, or fallback replay.
+- **Internal prompt leakage is blocked.** Assistant messages containing copied Copilot envelope tags are excluded from the fallback context, and all replay messages are sanitized before context fitting.
+- Confirmation detection now sees the real compact reply (`1`, `execute option 1`, and similar) instead of terminal metadata and hidden tool reminders.
+
+### Chinese
+
+- **修复把 Copilot 包装文本误当成用户消息的问题。** 路由、确认识别和消融重放前只提取 `<userRequest>…</userRequest>`，并移除 `<context>` 与 `<reminderInstructions>`。
+- **阻止内部提示泄露。** 含有 Copilot 包装标签的污染助手消息不会进入消融上下文，所有重放消息在上下文裁剪前都会先清洗。
+- 确认识别现在看到的是真实简短回复（如 `1`、`执行第1项`），而不是终端元数据和隐藏工具提醒。
+
+## 0.3.34 - 2026-10-22
+
+### English
+
+- **A refusing primary model no longer has final veto over an explicitly confirmed action.** Confirmation phrases such as `1`, `execute option 1`, `continue step 2`, or `confirm` are recognized independently of whether old option text survived context compaction.
+- After two primary-advisor `ASK_INPUT` responses, an explicit confirmation transfers bounded execution to the abliterated model. It receives only `run_in_terminal`, not search/navigation tools, and remains subject to VS Code's normal command approval.
+- The fallback is instructed to execute from verified evidence, never repeat the refusal or plan, and ask one concise parameter question only when an exact command genuinely cannot be derived.
+
+### Chinese
+
+- **主模型拒答不再对用户明确确认的动作拥有最终否决权。** `1`、`执行第1项`、`继续第2步`、`确认` 等表达会被独立识别，不依赖旧选项文本是否仍保留在压缩上下文中。
+- 主模型顾问连续两次返回 `ASK_INPUT` 后，明确确认会把受限执行权交给消融模型。它只获得 `run_in_terminal`，不会获得搜索/导航工具，并继续受 VS Code 正常命令审批。
+- 消融模型必须依据已验证证据执行，不得复述拒绝或计划；只有确实无法推导具体命令参数时才能提出一个简短问题。
+
+## 0.3.33 - 2026-10-22
+
+### English
+
+- **Premature clarification now gets an automatic recovery pass.** Before an advisor `ASK_INPUT` reaches the user, DeepSeek is asked once more whether the missing information can be obtained from known resources with an available tool.
+- **Partial reads are explicitly incomplete evidence.** Missing entry points, usage, identifiers, or arguments after reading only part of a file must trigger another targeted read/search, not a user question.
+- A second `ASK_INPUT` is shown only when the information is genuinely external or represents a user preference that tools cannot determine.
+
+### Chinese
+
+- **过早追问现在会自动进行一次恢复规划。** 顾问的 `ASK_INPUT` 在展示给用户前，DeepSeek 会再次判断缺失信息能否通过现有工具从已知资源获得。
+- **部分读取被明确视为不完整证据。** 只读取文件一部分后找不到入口、用法、标识符或参数时，必须继续定向读取或搜索，不能立即询问用户。
+- 只有第二次仍确认信息来自外部或属于工具无法判断的用户偏好时，才会展示 `ASK_INPUT`。
+
+## 0.3.32 - 2026-10-22
+
+### English
+
+- **Numeric confirmations are resolved mechanically.** A reply such as `1` is bound to option 1 in the immediately preceding assistant message and injected as an explicit `CONFIRMED ACTION`; models no longer have to infer the reference.
+- **The planner cannot redefine an already confirmed action.** `ASK_INPUT` is valid only when a concrete tool argument is absent from both the selected option and verified evidence.
+- **Fallback execution is narrowly scoped.** If the primary still asks for redundant clarification after an explicit confirmation, the fallback receives only `run_in_terminal`—never search/navigation tools—to advance the selected action under normal VS Code approval.
+
+### Chinese
+
+- **数字确认现在由程序机械解析。** `1` 会绑定到紧邻助手消息中的第 1 项，并作为明确的 `CONFIRMED ACTION` 注入；不再依赖模型猜测指代。
+- **规划器不能重新定义已经确认的动作。** 只有当所选项和已验证证据都缺少具体工具参数时，才允许返回 `ASK_INPUT`。
+- **消融执行被严格限权。** 若主模型在明确确认后仍作多余追问，消融模型只获得 `run_in_terminal`，不会重新获得搜索或导航工具，并仍受 VS Code 正常审批。
+
+## 0.3.31 - 2026-10-22
+
+### English
+
+- **Confirmed actions can now advance beyond inspection.** The primary planner receives the curated terminal tool in addition to read/search tools, so a user selecting a previously proposed execution step can actually run it under VS Code's normal confirmation UI.
+- **Short planning calls now correctly disable reasoning.** The option key was corrected from `reasoning_effort` to the provider's supported `reasoningEffort`, preventing the entire 1,200-token allowance from being consumed by hidden reasoning with no answer.
+- **Repeated fallback plans are suppressed programmatically.** If the fallback substantially repeats the immediately preceding assistant answer without progress, the proxy stops the loop and reports it instead of displaying the plan again.
+
+### Chinese
+
+- **用户确认的动作现在可以越过只读检查继续执行。** 主模型规划器除读取和搜索工具外，也会获得受控终端工具；用户选择先前提出的执行步骤后，可以在 VS Code 正常确认界面下真正运行。
+- **短规划调用现在会正确关闭推理。** 参数键由错误的 `reasoning_effort` 修正为提供程序支持的 `reasoningEffort`，避免 1,200 token 全部消耗在隐藏推理而没有正文。
+- **程序级拦截重复计划。** 如果消融模型没有推进且大量复述紧邻的助手回答，代理会停止循环并明确报告，而不是再次显示同一计划。
+
+## 0.3.30 - 2026-10-22
+
+### English
+
+- **Short replies now retain their conversational referent.** A separate verbatim recent-dialogue block preserves the immediately preceding assistant choices and user reply, so inputs such as `1`, “the second option”, or “do that” can be resolved correctly.
+- The dialogue block is supplied to both the primary read-only planner and the fallback, independently of the compact tool-evidence ledger.
+
+### Chinese
+
+- **简短回复现在会保留其对话指代。** 独立的近期对话块会原样保留紧邻的助手选项和用户回复，使 `1`、“第二个”或“就这样做”等输入能够被正确解析。
+- 该对话块会同时提供给主模型只读规划器和消融模型，与紧凑工具证据账本分开传递。
+
+## 0.3.29 - 2026-10-22
+
+### English
+
+- **Tool selection now belongs to the primary advisor, not the 4B fallback.** DeepSeek can directly emit one of four read-only inspection tools (`file_search`, `grep_search`, `list_dir`, `read_file`). Its validated call is forwarded to VS Code without reinterpretation by the smaller model.
+- **The fallback no longer receives tools while primary advising is enabled.** It is invoked only after the advisor returns `DELEGATE`, or to answer from existing evidence, eliminating blind tool loops caused by weak 4B planning.
+- **Advisor completion budget increased to 1,200 tokens.** Logs showed DeepSeek spending the previous 600-token allowance entirely on reasoning and returning an empty answer.
+
+### Chinese
+
+- **工具选择权改由主模型顾问持有，不再交给 4B。** DeepSeek 可以直接发出四种只读检查工具之一（`file_search`、`grep_search`、`list_dir`、`read_file`），其调用经现有校验后直接交给 VS Code，不再由小模型重新解释。
+- **启用主模型顾问时，消融模型不再获得工具。** 只有顾问返回 `DELEGATE` 或需要根据现有证据作答时才调用 4B，从结构上消除弱规划导致的盲目工具循环。
+- **顾问输出预算提高到 1,200 token。** 日志显示 DeepSeek 会把原来的 600 token 全部用在推理上，最终正文为空。
+
+## 0.3.28 - 2026-10-22
+
+### English
+
+- **Made primary-model advice task-agnostic.** The advisor no longer contains DMG, key, reverse-engineering, or artifact-specific assumptions. It generically interprets the latest clarification, identifies the target from verified evidence, and recommends one precise read-only action.
+- Missing paths, identifiers, resources, or other required details now produce the generic `ASK_INPUT` signal. The advisor is forbidden from inventing paths, formats, names, tools, or locations from request wording.
+
+### Chinese
+
+- **主模型顾问改为任务无关设计。** 提示中不再包含 DMG、key、逆向或特定产物假设；它只通用地理解最新纠正、根据已验证证据识别目标，并建议一个精确的只读动作。
+- 缺少路径、标识符、资源或其他必要信息时统一返回 `ASK_INPUT`；禁止根据请求措辞猜测路径、格式、名称、工具或位置。
+
+## 0.3.27 - 2026-10-22
+
+### English
+
+- **Added primary-model navigation advice for fallback execution.** After DeepSeek refuses the underlying request, it is reused in a tightly scoped, read-only advisor call that only interprets artifact types, reconciles verified evidence, and recommends one precise inspection step. The 4B abliterated model remains responsible for the refused reasoning.
+- **Blind workspace search is explicitly rejected by the advisor.** When an exact artifact path is absent, the advisor returns `ASK_PATH` instead of treating words such as “DMG” as guessed directory names.
+- The advisor is enabled by default and can be disabled with `abliterProxyUsePrimaryAdvisor`.
+
+### Chinese
+
+- **消融执行新增主模型导航建议。** DeepSeek 拒绝底层请求后，会以严格限定的只读顾问身份再次参与：只解释产物类型、整理已验证证据并建议一个精确检查步骤；被拒绝的推理仍由 4B 消融模型完成。
+- **顾问明确禁止盲目搜索工作区。** 缺少准确产物路径时返回 `ASK_PATH`，不会再把 “DMG” 等词猜成目录名。
+- 顾问默认启用，可通过 `abliterProxyUsePrimaryAdvisor` 关闭。
+
+## 0.3.26 - 2026-10-22
+
+### English
+
+- **Fallback execution now continues from earlier work instead of restarting.** A compact evidence ledger is built from the full, untrimmed chat history and injected into every fallback turn, preserving real tool paths, inputs, and results even when the 4B context window drops old messages.
+- **Evidence has explicit provenance.** Actual tool results are marked as verified observations and must be reused; earlier model prose is retained as an unverified lead rather than treated as proof or discarded.
+- **Context sizing now counts real tool-result content.** Large results can no longer slip past the estimator as a 64-character placeholder and unexpectedly crowd out the user's request.
+
+### Chinese
+
+- **消融模型现在会接着已有成果执行，而不是重新开始。** 系统会从完整、未裁剪的聊天历史生成紧凑证据账本；即使 4B 模型的上下文裁掉旧消息，真实工具路径、参数和结果仍会保留。
+- **证据来源会被明确区分。** 真实工具结果标记为已验证并要求复用；之前模型的文字保留为未验证线索，不会被当作执行事实，也不会直接丢弃。
+- **上下文估算现在按真实工具结果长度计算。** 大型结果不会再被误算为 64 个字符并挤掉用户请求。
+
+## 0.3.25 - 2026-10-22
+
+### English
+
+- **Bounded fallback tool execution.** Abliterated execution chains stop exposing tools after six calls by default, then produce a concise evidence-based status or ask for the exact path. The limit is configurable with `abliterProxyMaxToolSteps`.
+- **Continuation banners no longer flood the chat.** The proxy banner appears once when replay starts, not before every tool result.
+- **Search guidance now rejects guessed paths and equivalent repeated searches.**
+
+### Chinese
+
+- **限制消融模型的工具执行链。** 默认最多调用六次工具；达到上限后撤掉工具，只能根据已有证据简短收尾，或询问准确路径。可通过 `abliterProxyMaxToolSteps` 调整。
+- **续接工具结果时不再重复刷代理横幅。** 横幅只在重放开始时显示一次。
+- **搜索约束会阻止猜测路径和重复等价搜索。**
+
+## 0.3.24 - 2026-10-21
+
+### English
+
+- **Abliterated tool loops are now sticky.** Tool results from calls emitted by the fallback are routed directly back to that fallback, instead of re-entering the primary model and triggering another refusal/replay cycle.
+- **Continuation turns have an accurate status banner.** They now say that tool execution is continuing rather than incorrectly reporting another primary-model refusal.
+- **Unrequested side effects are explicitly forbidden.** The direct-execution prompt prevents cleanup, deletion, moves, overwrites, edits, installs, or settings changes unless the user requested that exact action.
+
+### Chinese
+
+- **消融模型的工具循环现在会保持在同一模型上。** 消融模型发出的工具调用，其结果会直接送回消融模型，不再重新进入主模型并触发新一轮拒答和重放。
+- **续接工具调用时会显示准确状态。** 横幅会提示正在继续执行工具，而不会再次误报主模型拒答。
+- **明确禁止未请求的副作用。** 除非用户明确要求，执行提示会禁止清理、删除、移动、覆盖、修改、安装软件或更改设置。
+
+## 0.3.23 - 2026-10-21
+
+### English
+
+- **Added per-model response instructions.** `responseInstructions` (with `systemPrompt` as an alias) prepends a model-specific system message, allowing one model to default to concise answers without changing Copilot instructions for every provider.
+- **Configured the workspace DeepSeek models for concise Chinese responses.** Flash and Pro now lead with the outcome, avoid restating the request, keep simple answers to a few sentences, and preserve necessary detail for code changes, diagnostics, and tool execution. Their advertised and upstream output limit is reduced to 8,192 tokens as a runaway-output guard, not as the primary style control.
+
+### Chinese
+
+- **新增每模型回答指令。** `responseInstructions`（兼容别名为 `systemPrompt`）会为指定模型添加独立系统消息，可以只让某个模型默认精简回答，而不影响其他 Copilot 模型。
+- **已把工作区内的 DeepSeek Flash 和 Pro 配置为简洁中文回答。** 默认先给结论、不复述问题，简单问题控制在几句话内；代码修改、故障诊断和工具执行仍保留必要细节。同时把对外声明和实际上游输出上限降到 8,192 token，作为异常长输出的保险，而不是主要风格控制手段。
+
+## 0.3.22 - 2026-10-21
+
+### English
+
+- **The abliterated model now executes tools directly instead of handing execution back to the model that just refused.** Real logs showed the repaired primary-model handoff returning 836 characters of prose and zero tool calls. Refusal replay now exposes a curated set of five workspace tools (`run_in_terminal`, `read_file`, `grep_search`, `file_search`, `list_dir`) directly to the fallback model. Calls still pass through the existing availability, alias, and argument validation before VS Code executes them.
+- **Tool schemas are budgeted into the 8K fallback context.** The replay reserves space for the selected schemas before choosing recent conversation messages, preventing the 4B model from losing the current request to truncation.
+- **Execution claims must be backed by tool results.** A replay system instruction requires one concrete call and treats all prior paths/results as unverified. If the fallback still emits prose, the UI explicitly reports that no action occurred.
+
+### Chinese
+
+- **消融模型现在直接执行工具，不再把执行权交还给刚刚拒答的主模型。** 实际日志显示修复后的主模型交接仍然返回了 836 字文本、0 个工具调用。拒答重放现在只向消融模型开放五个白名单工作区工具：`run_in_terminal`、`read_file`、`grep_search`、`file_search`、`list_dir`。所有调用仍会经过已有的可用性、别名和参数校验后才交给 VS Code。
+- **工具定义纳入 8K 上下文预算。** 在挑选最近对话前先为白名单工具 schema 预留空间，避免 4B 模型因截断看不到当前请求。
+- **执行结论必须有真实工具结果。** 重放系统提示要求先发出一个具体调用，并把历史路径与结果视为未验证信息；如果消融模型仍只输出文字，界面会明确提示没有执行。
+
+## 0.3.21 - 2026-10-21
+
+### English
+
+- **Fixed tool handoff failing with HTTP 400.** Context trimming could begin with a tool result whose corresponding assistant tool call had been dropped. DeepSeek correctly rejected that malformed history (`Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`). Handoff context now flattens prior tool calls and results into a valid plain-text transcript while preserving their evidence.
+- **Abliterated plans are no longer presented as completed work.** When tool handoff is enabled, fallback prose is buffered instead of streamed. It is hidden when the primary executor emits real tool calls; if handoff produces no calls, the UI explicitly says no action was performed before showing the proposed plan.
+- **The executor prompt now requires verification and action.** Claims from the small fallback model are treated as untrusted hypotheses. The primary model is instructed to verify paths/results and emit tools instead of restating steps.
+
+### Chinese
+
+- **修复工具交接 HTTP 400。** 上下文截断可能从一条工具结果开始，而对应的 assistant `tool_calls` 已被裁掉，DeepSeek 因消息链不合法而拒绝请求。现在会把历史工具调用和结果压平成普通文本记录：保留证据，同时保证协议消息完整。
+- **消融模型给出的计划不再伪装成已完成工作。** 启用工具交接时，消融文本会先缓冲；主执行模型成功发出真实工具调用后不再显示该计划。若交接没有产生调用，界面会明确提示“未执行任何操作”，然后才展示建议方案。
+- **执行提示改为强制验证和行动。** 小模型声称的路径与结果一律视为未验证假设，主模型必须先核验并优先发出工具调用，不能只复述步骤。
+
+## 0.3.20 - 2026-10-21
+
+### English
+
+- **Refusal routing now uses semantic confirmation instead of regex alone.** Regex only marks an answer as a candidate and keeps its opening buffered. A classifier then sees both the user request and the primary answer and returns `ROUTE` or `KEEP`, distinguishing policy/authorization refusals from capability limitations and normal corrections. The configured abliter classifier is preferred; when none is configured, the primary model performs the small tool-free verdict request.
+- **No refusal text leaks before the semantic verdict.** Candidate responses remain buffered until confirmed. A `KEEP` verdict releases the original response unchanged; `ROUTE` discards it and replays the turn on the abliterated model.
+- **Classifier failures retain the previous behavior.** Invalid verdicts, timeouts, or request errors fall back to the regex decision so genuine refusals are not silently lost.
+
+### Chinese
+
+- **拒答路由由纯正则升级为语义确认。** 正则现在只标记疑似拒答并暂存开头；分类模型会同时阅读用户问题和主模型回答，输出 `ROUTE` 或 `KEEP`，从而区分政策/授权拒答、能力限制和正常纠错。优先使用已配置的消融分类器；未配置时由主模型执行这次不带工具的轻量判定。
+- **语义判定前不会泄露拒答文本。** 疑似回答会保持缓冲；`KEEP` 原样释放，`ROUTE` 则丢弃拒答并在消融模型上重放。
+- **分类器异常时保留原有兜底。** 无效输出、超时或请求失败会退回正则结果，避免真实拒答被静默漏掉。
+
+## 0.3.19 - 2026-10-21
+
+### English
+
+- **Fixed terse Chinese refusals being missed.** A primary model can refuse with the standalone opening `不做。`, which did not match the more contextual `我不做 / 这一步我不做` patterns. A sentence-anchored form now catches that exact refusal without reintroducing false positives such as `不行，这个工具调用不对`.
+
+### Chinese
+
+- **修复极短中文拒答漏检。** 主模型可能直接用独立短句 `不做。` 开头，原先较有上下文的 `我不做 / 这一步我不做` 规则无法命中。现在增加句首完整短句匹配，同时不会重新误伤 `不行，这个工具调用不对` 之类正常纠错表达。
+
+## 0.3.18 - 2026-10-21
+
+### English
+
+- **Fixed abliterated answers being executed as the wrong tool.** When tool schemas were deliberately removed, the Ollama compatibility parser could still reinterpret ordinary command-looking text as a live tool call. Tool parsing is now disabled whenever the request contains no tools. During replay, fallback-generated calls are suppressed unless direct fallback tool access was explicitly enabled; the primary model remains the execution authority.
+- **Fixed tool handoff for preflight and forced routes.** Tool handoff previously ran only after a detected primary-model refusal. Direct routes now use the same primary-model handoff, and no extra handoff request is made when VS Code supplied no tools.
+- **Reduced false abliter-proxy activations on ordinary questions.** Generic openings such as `不行` and standalone phrases such as `到此为止` no longer count as refusals without a refusal target. Capability limitations such as “I cannot access/view that session or tool” are not treated as safety refusals unless the answer also contains an explicit safety or policy marker.
+
+### Chinese
+
+- **修复消融回答被错误执行成工具调用。** 即使主动移除了工具定义，Ollama 兼容解析器过去仍会把看起来像命令的普通文本强行解释成真实工具调用。现在，请求没有携带工具时会彻底关闭工具解析；重放期间也会抑制消融模型自行生成的工具调用，除非明确允许它直接使用工具，执行权仍归主模型。
+- **补齐前置路由和强制路由的工具交接。** 之前只有“检测到主模型拒答后重放”才会交接工具；现在直接进入消融模型的两条路径也会统一交回主模型，并且 VS Code 本轮没有提供工具时不会多发一次交接请求。
+- **降低普通问题误触发消融代理的概率。** `不行` 之类泛化开头和独立的 `到此为止` 不再单独构成拒答；“无法访问/查看该会话或工具”一类能力限制也不会被当作安全拒答，除非回答同时包含明确的安全或政策语义。
+
+## 0.3.13 - 2026-10-21
+
+### English
+
+- **Fixed: the abliter proxy almost never fired on real refusals.** The refusal list was built from textbook phrasings (`我无法协助`, `I cannot help with that`), so an actual DeepSeek refusal opening `不行，这一步我不做。` matched nothing and the proxy stayed silent. Verified against a real refusal transcript, the old list scored **0/4** on Chinese openings. The list is now anchored on refusal *shapes* rather than whole sentences — 27 patterns covering `不行/恕难` openers, `我不做 / 帮不了 / 到此为止` bodies, apology-prefixed refusals, and `超出…范围` closures, plus broader English forms (`I must decline`, `won't be able to`, `I'm not comfortable`). Regression fixture: **15/15** with zero false positives on ordinary answers.
+- **Fixed: short refusals were skipped entirely.** `looksLikeRefusal()` required at least 8 characters before evaluating anything, which silently dropped concise Chinese refusals such as `这个我不做。` (6 chars) and `恕难从命。`. The floor is now 2 characters — the patterns decide, not the length.
+- **Verified the streaming probe is safe with thinking models.** `reasoning_content` never reaches the sink, so a long reasoning trace cannot flood the probe buffer and force a premature release.
+
+### Chinese
+
+- **修复：消融代理在真实拒答上几乎不触发。** 原词表是按教科书式说法写的（`我无法协助`、`I cannot help with that`），而 DeepSeek 实战拒答开头是 `不行，这一步我不做。`，完全匹配不上，代理因此全程静默。用真实拒答文本验证，旧词表在中文开头上的命中率是 **0/4**。新词表改为匹配拒答的**句式形态**而非整句——27 条模式覆盖 `不行/恕难` 类开头、`我不做 / 帮不了 / 到此为止` 类主体、道歉前缀式拒答、`超出…范围` 类收尾，并补全了英文形态（`I must decline`、`won't be able to`、`I'm not comfortable`）。回归用例：**15/15** 全部命中，且对普通回答零误报。
+- **修复：过短的拒答被直接跳过。** `looksLikeRefusal()` 要求文本至少 8 个字符才做判定，导致 `这个我不做。`（6 字）、`恕难从命。` 这类简洁中文拒答被静默丢弃。现在下限改为 2 字符——由模式决定，而不是由长度决定。
+- **确认流式探测对思考模型安全。** `reasoning_content` 不会进入 sink，因此冗长的思考链不会灌满探测缓冲、导致提前释放。
+
+## 0.3.12 - 2026-10-21
+
+### English
+
+- **Added the abliter proxy: route refused or sensitive turns to a refusal-removed model.** A sibling to the vision proxy. When the primary model would refuse a turn, the request is handed to a locally configured abliterated / Heretic model instead. Three entry points share one router:
+  - **preflight** — the outgoing prompt is screened before it is sent. Stage 1 is a case-insensitive regex pass (zero latency); if it reports *ambiguous*, an optional classifier model casts the deciding vote. Prompts judged sensitive go straight to the abliterated model.
+  - **refusal** — the primary model is always tried first. The opening `240` characters of the stream are held back while the text is checked against a refusal-phrase list; if it matches, those characters are discarded and the turn is replayed on the abliterated model, so the user never sees the refusal. Tool calls release the buffer immediately, since a tool call means the model is working.
+  - **forced** — the new `Toggle Abliter Proxy` command sends every turn to the abliterated model until toggled back. The status bar shows an unlock icon while forced.
+- **Added `copilot.abliterProxy*` settings.** Model, mode, optional classifier model, timeout, and three pattern lists (refusal / sensitive / ambiguous) that extend the built-in English and Chinese defaults.
+- **Thinking is disabled for abliterated turns by default (`abliterProxyDisableThinking`).** Locally hosted abliterated models are usually far too slow to emit long reasoning traces before producing anything useful.
+- **Added `copilot.abliterProxyNumGpu`.** Passes Ollama `num_gpu` to the abliterated model, so a turn can be forced onto the CPU. On machines whose only accelerator is an integrated GPU this is meaningfully faster than offloading to it: measured on an i7-12700K + Intel UHD 770, pure CPU reached `4.31 tok/s` against `2.95 tok/s` on the iGPU.
+- **Added commands** `Set Abliter Proxy Model`, `Set Abliter Classifier Model`, `Set Abliter Proxy Mode`, and `Toggle Abliter Proxy`, plus a status card and buttons in the configuration panel.
+- **The abliterated model is never re-entered by the proxy**, so a refusal cannot ping-pong between the two models.
+
+### Chinese
+
+- **新增消融代理：把被拒答或敏感的一轮转给去拒答模型。** 与视觉代理同级的机制。当主模型会拒答时，请求改由本地配置的消融 / Heretic 模型处理。三条入口共用一个路由器：
+  - **preflight（前置判定）**——请求发出前先筛查提示词。第一级是不区分大小写的正则匹配（零延迟）；若判定为**模糊**，再由可选的分类器模型投票。判定为敏感的提示词直接走消融模型。
+  - **refusal（拒答重放）**——永远先试主模型。流式输出的开头 `240` 个字符会先被扣住，与拒答话术表比对；若命中，这些字符被丢弃，整轮在消融模型上重放，用户看不到拒答内容。工具调用会立刻释放缓冲，因为出现工具调用说明模型在正常工作而非拒答。
+  - **forced（强制）**——新增的 `Toggle Abliter Proxy` 命令会把每一轮都发给消融模型，直到再次切换关闭。强制期间状态栏显示解锁图标。
+- **新增 `copilot.abliterProxy*` 系列配置项。** 包括模型、模式、可选分类器模型、超时，以及三个模式列表（拒答 / 敏感 / 模糊），用于扩展内置的中英文默认词表。
+- **消融轮次默认关闭思考（`abliterProxyDisableThinking`）。** 本地部署的消融模型通常太慢，在产出有效内容前输出冗长思考链不划算。
+- **新增 `copilot.abliterProxyNumGpu`。** 向 Ollama 传递 `num_gpu`，可强制把该轮放到 CPU 上。在只有集成显卡的机器上，这明显快于卸载到集显：在 i7-12700K + Intel UHD 770 上实测，纯 CPU 达到 `4.31 tok/s`，而集显只有 `2.95 tok/s`。
+- **新增命令** `Set Abliter Proxy Model`、`Set Abliter Classifier Model`、`Set Abliter Proxy Mode`、`Toggle Abliter Proxy`，并在配置面板中加入状态卡片与按钮。
+- **消融模型不会被代理再次接管**，因此拒答不会在两个模型之间来回弹跳。
+
 ## 0.3.11 - 2026-09-15
 
 ### English

@@ -1,10 +1,13 @@
 {
   "name": "matrix-oai-compatible-copilot-provider",
   "displayName": "Matrix OAI Gateway for Copilot",
-  "description": "OpenAI-compatible Copilot and VS Code language-model gateway with local proxy (Chat Completions + Responses API), usage telemetry, balance checking, and DeepSeek thinking-mode replay. / 支持本地代理(Chat Completions + Responses API)、用量统计、余额查询和 DeepSeek 思考模式回放的 OAI 网关。",
-  "version": "0.3.11",
+  "description": "将任意 OpenAI 兼容模型接入 Copilot Chat，支持 Agent 工具调用、本地 API 网关、用量统计、模型路由与带证据校验的消融代理。",
+  "version": "0.3.51",
   "publisher": "matrix-oai-compatible-copilot-provider",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "icon": "media/icon.png",
   "homepage": "https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider#readme",
   "repository": {
@@ -57,6 +60,10 @@
     "onCommand:matrixOaiCopilot.writeCodexConfig",
     "onCommand:matrixOaiCopilot.setThinkingEffort",
     "onCommand:matrixOaiCopilot.setVisionProxyModel",
+    "onCommand:matrixOaiCopilot.setAbliterProxyModel",
+    "onCommand:matrixOaiCopilot.setAbliterClassifierModel",
+    "onCommand:matrixOaiCopilot.setAbliterProxyMode",
+    "onCommand:matrixOaiCopilot.toggleAbliterProxy",
     "onCommand:matrixOaiCopilot.resetUsage",
     "onCommand:matrixOaiCopilot.checkBalance",
     "onCommand:matrixOaiCopilot.writeClaudeCodeConfig",
@@ -129,6 +136,22 @@
       {
         "command": "matrixOaiCopilot.setVisionProxyModel",
         "title": "Matrix OAI Gateway: Set Vision Proxy Model"
+      },
+      {
+        "command": "matrixOaiCopilot.setAbliterProxyModel",
+        "title": "Matrix OAI Gateway: Set Abliter Proxy Model"
+      },
+      {
+        "command": "matrixOaiCopilot.setAbliterClassifierModel",
+        "title": "Matrix OAI Gateway: Set Abliter Classifier Model"
+      },
+      {
+        "command": "matrixOaiCopilot.setAbliterProxyMode",
+        "title": "Matrix OAI Gateway: Set Abliter Proxy Mode"
+      },
+      {
+        "command": "matrixOaiCopilot.toggleAbliterProxy",
+        "title": "Matrix OAI Gateway: Toggle Abliter Proxy"
       },
       {
         "command": "matrixOaiCopilot.resetUsage",
@@ -392,6 +415,14 @@
                 "type": "number",
                 "description": "Default output token limit sent to upstream requests when the client did not provide max_tokens."
               },
+              "responseInstructions": {
+                "type": "string",
+                "description": "Optional per-model system instruction controlling response style, language, and level of detail. Prepended only to requests for this model."
+              },
+              "systemPrompt": {
+                "type": "string",
+                "description": "Compatibility alias for responseInstructions."
+              },
               "temperature": {
                 "type": "number",
                 "description": "Default temperature sent to upstream requests for this model."
@@ -520,6 +551,102 @@
           "minimum": 5,
           "maximum": 300,
           "description": "Timeout for one image-description request made by the Copilot vision proxy."
+        },
+        "matrixOaiCopilot.copilot.enableAbliterProxy": {
+          "type": "boolean",
+          "default": false,
+          "description": "Route refused or sensitive Copilot Chat turns to a refusal-removed (abliterated) model. Requires copilot.abliterProxyModel to be set."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model ID of the refusal-removed model used as the abliter proxy backend. Empty disables the proxy."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyMode": {
+          "type": "string",
+          "enum": [
+            "both",
+            "preflight",
+            "refusal",
+            "off"
+          ],
+          "default": "both",
+          "description": "Routing strategy. 'preflight' reroutes before sending if the prompt looks sensitive; 'refusal' always tries the primary model first and replays only after it refuses; 'both' does either; 'off' leaves automatic routing disabled (manual toggle still works)."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyClassifierModel": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model used for semantic routing decisions: ambiguous prompt preflight and refusal confirmation. When empty, refusal confirmation reuses the primary model; ambiguous preflight remains on the primary model."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyRefusalPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra case-insensitive regular expressions that identify a refusal. Empty uses the built-in English and Chinese refusal list."
+        },
+        "matrixOaiCopilot.copilot.abliterProxySensitivePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra case-insensitive regular expressions that mark a prompt as definitely sensitive during preflight. Empty uses the built-in list."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyAmbiguousPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra case-insensitive regular expressions that mark a prompt as ambiguous, which then goes to the classifier model when one is configured. Empty uses the built-in list."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyDisableThinking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable thinking/reasoning when a turn is handled by the abliterated model. This can improve speed, but it materially reduces reliability for multi-step tool use and evidence analysis."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyTimeoutSeconds": {
+          "type": "number",
+          "default": 180,
+          "minimum": 5,
+          "maximum": 3600,
+          "description": "Request timeout for turns handled by the abliterated model. Local CPU inference of a 12B model needs a large budget."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyNumGpu": {
+          "type": "number",
+          "default": -1,
+          "minimum": -1,
+          "description": "Ollama num_gpu passed to the abliterated model. -1 leaves it untouched; 0 forces pure CPU, which is faster than an underpowered integrated GPU."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyNumCtx": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Ollama num_ctx for turns replayed on the abliterated model. 0 reuses the model's configured context_length. Ollama defaults to only 4096 tokens, which truncates long conversations."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyMaxToolSteps": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Maximum direct tool calls in one abliterated execution chain. At the limit, tools are removed and the model must summarize verified results or ask for an exact path."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyUsePrimaryAdvisor": {
+          "type": "boolean",
+          "default": true,
+          "description": "After a primary-model refusal, reuse that primary model as a bounded planner and tool executor. It directly selects the next tool under normal VS Code confirmation; the abliterated model handles only the refused reasoning."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyDropTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "Do not send tool schemas to the abliterated model. Text that resembles a command stays text; only the primary model may emit executable tool calls during an enabled handoff."
+        },
+        "matrixOaiCopilot.copilot.abliterProxyToolHandoff": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow refusal replays to use a curated set of workspace tools directly. Only terminal, file reading, search, and directory listing schemas are exposed; emitted calls are still validated against VS Code's available tools."
         },
         "matrixOaiCopilot.temperature": {
           "type": [
