@@ -2,7 +2,7 @@
   "name": "matrix-oai-compatible-copilot-provider",
   "displayName": "Matrix OAI Gateway for Copilot",
   "description": "OpenAI-compatible gateway for Copilot Chat with Agent tools, local APIs, model routing, usage tracking, and evidence-audited abliterated fallback. / 将任意 OpenAI 兼容模型接入 Copilot Chat，支持 Agent 工具调用、本地 API、模型路由、用量统计与带证据校验的消融代理。",
-  "version": "0.3.52",
+  "version": "0.3.58",
   "publisher": "matrix-oai-compatible-copilot-provider",
   "license": "MIT",
   "scripts": {
@@ -458,6 +458,10 @@
               "enable_thinking": {
                 "type": "boolean",
                 "description": "Default thinking toggle sent to upstream requests for models or gateways that support it."
+              },
+              "chat_template_kwargs": {
+                "type": "object",
+                "description": "Optional chat-template arguments sent to OpenAI-compatible vLLM backends."
               },
               "thinking_budget": {
                 "type": "number",

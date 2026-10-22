@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.58 - 2026-10-22
+
+- Fixed abliterated tool loops unexpectedly terminating when VS Code or a tool bridge rewrites the tool-call ID.
+- Continuations now use exact call IDs first, then a short-lived tool-name match or sole-pending-call fallback.
+- 修复 VS Code 或工具桥改写工具调用 ID 时，消融工具链意外中断的问题。
+- 续轮现在优先精确匹配调用 ID；匹配失败时，会在短时间窗口内按工具名或唯一待处理调用安全恢复。
+
+## 0.3.57 - 2026-10-22
+
+- Fixed large latest tool results bypassing the abliterated-model context budget and causing `input exceeds the context window`.
+- Oversized text and tool-result parts are now compacted with both their beginning and decisive tail preserved before whole-message fitting.
+- 修复最新一条大型工具结果绕过消融模型上下文预算、导致 `input exceeds the context window` 的问题。
+- 超长文本和工具结果会先压缩并保留开头与关键结尾，再进行整段消息的上下文适配。
+
+## 0.3.56 - 2026-10-22
+
+- Fixed abliterated tool continuations failing immediately on an empty or reasoning-only streamed response.
+- Such turns now retry once without streaming with an explicit next-tool-or-final-answer instruction, then degrade to a safe status instead of throwing.
+- 修复消融工具续轮收到空流式响应或仅推理响应时立即失败的问题。
+- 此类续轮会自动改为非流式重试一次，并明确要求返回下一次工具调用或最终答案；仍为空时返回安全状态，不再抛出整轮错误。
+
+## 0.3.55 - 2026-10-22
+
+- Added opt-in `chat_template_kwargs` forwarding for vLLM/Qwen models, including reliable thinking-mode disabling.
+- Removed complete and dangling Qwen `<think>` blocks from fallback answers before audit or display.
+- 为 vLLM/Qwen 模型增加可选的 `chat_template_kwargs` 透传，确保能够可靠关闭思考模式。
+- 消融回答在审计或显示前会清除完整及残缺的 Qwen `<think>` 内容。
+
+## 0.3.54 - 2026-10-22
+
+- Fixed strict vLLM/Qwen chat templates rejecting abliter replay requests with `System message must be at the beginning`.
+- All model, Copilot-history, and replay-control system messages are now merged into one leading system message.
+- 修复严格的 vLLM/Qwen 对话模板因 `System message must be at the beginning` 拒绝消融重放请求的问题。
+- 模型指令、Copilot 历史和消融控制产生的 system 消息现在会合并为唯一的首条 system 消息。
+
+## 0.3.53 - 2026-10-22
+
+- Fixed remote OpenAI-compatible/vLLM abliterated backends receiving Ollama-only `num_ctx` and `num_gpu` request fields.
+- Added regression coverage for backend-specific abliterated-model runtime options.
+- 修复远程 OpenAI 兼容/vLLM 消融后端错误收到 Ollama 专用 `num_ctx`、`num_gpu` 字段的问题。
+- 新增后端专属消融模型运行参数的回归测试。
+
 ## 0.3.52 - 2026-10-22
 
 - Restored the concise English/Chinese extension description and documented the evidence-grounded abliter proxy throughout the README, including features, configuration, commands, and limitations.

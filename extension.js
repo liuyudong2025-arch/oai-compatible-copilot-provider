@@ -29,6 +29,7 @@ const MODEL_DEFAULT_PARAMETER_KEYS = [
   'reasoning_effort',
   'response_format',
   'stream_options',
+  'chat_template_kwargs',
   'num_ctx',
   'num_gpu'
 ];
@@ -938,12 +939,26 @@ function buildChatRequest(config, messages, options) {
 
 function applyConfiguredResponseInstructions(config, messages) {
   const instruction = String(config?.responseInstructions || config?.systemPrompt || '').trim();
-  if (!instruction) {
-    return messages;
+  const systemParts = instruction ? [instruction] : [];
+  const conversation = [];
+
+  // Some OpenAI-compatible chat templates (notably vLLM/Qwen templates)
+  // reject a system message anywhere after the first non-system message.
+  // Copilot histories and abliter replay injection can each contribute their
+  // own system entry, so collect every one and emit a single leading message.
+  for (const message of messages || []) {
+    if (message?.role === 'system') {
+      const text = openAiContentToText(message.content).trim();
+      if (text) systemParts.push(text);
+    } else {
+      conversation.push(message);
+    }
   }
+
+  if (systemParts.length === 0) return conversation;
   return [
-    { role: 'system', content: instruction },
-    ...(messages || [])
+    { role: 'system', content: systemParts.join('\n\n') },
+    ...conversation
   ];
 }
 
@@ -1503,7 +1518,9 @@ let abliterForced = false;
 // emitted by the fallback so that request stays on the same model instead of
 // re-entering (and potentially being refused again by) the primary model.
 const ABLITER_CONTINUATION_TTL_MS = 15 * 60 * 1000;
+const ABLITER_CONTINUATION_FUZZY_MS = 2 * 60 * 1000;
 const abliterContinuationCallIds = new Map();
+let abliterContinuationSequence = 0;
 
 function pruneAbliterContinuationCallIds(now = Date.now()) {
   for (const [callId, state] of abliterContinuationCallIds) {
@@ -1515,33 +1532,71 @@ function pruneAbliterContinuationCallIds(now = Date.now()) {
 
 function rememberAbliterToolCall(call, previousState) {
   const callId = String(call?.id || call?.callId || '').trim();
-  if (!callId) {
+  const toolName = String(call?.function?.name || call?.name || call?.toolName || '').trim();
+  if (!callId && !toolName) {
     return;
   }
   const now = Date.now();
   pruneAbliterContinuationCallIds(now);
   const step = Number(previousState?.step || 0) + 1;
-  abliterContinuationCallIds.set(callId, {
+  const continuationKey = callId || `pending-${now}-${++abliterContinuationSequence}`;
+  abliterContinuationCallIds.set(continuationKey, {
     callId,
+    toolName,
     step,
+    armedAt: now,
     expiresAt: now + ABLITER_CONTINUATION_TTL_MS
   });
-  logDebug(`Abliter tool continuation armed for call ${callId} (step ${step}).`);
+  logDebug(`Abliter tool continuation armed for call ${callId || '(missing id)'} tool=${toolName || '(unknown)'} (step ${step}).`);
 }
 
 function consumeAbliterContinuation(messages) {
-  pruneAbliterContinuationCallIds();
+  const now = Date.now();
+  pruneAbliterContinuationCallIds(now);
+  const results = [];
   for (let i = (messages || []).length - 1; i >= 0; i--) {
     const parts = Array.isArray(messages[i]?.content) ? messages[i].content : [];
     for (let j = parts.length - 1; j >= 0; j--) {
       const part = parts[j];
-      if (isToolResultPart(part) && abliterContinuationCallIds.has(part.callId)) {
-        const state = abliterContinuationCallIds.get(part.callId);
-        abliterContinuationCallIds.delete(part.callId);
-        logDebug(`Abliter tool continuation matched result for call ${part.callId} (step ${state.step}).`);
-        return state;
-      }
+      if (isToolResultPart(part)) results.push(part);
     }
+  }
+
+  for (const part of results) {
+    const resultCallId = String(part.callId || '').trim();
+    if (resultCallId && abliterContinuationCallIds.has(resultCallId)) {
+      const state = abliterContinuationCallIds.get(resultCallId);
+      abliterContinuationCallIds.delete(resultCallId);
+      logDebug(`Abliter tool continuation matched result for call ${resultCallId} (step ${state.step}).`);
+      return state;
+    }
+  }
+
+  // VS Code and some tool bridges may rewrite call IDs between the emitted
+  // call and its result. Recover only from a very recent result and prefer an
+  // exact tool-name match, preventing an unrelated old chat from becoming a
+  // continuation merely because another pending call exists.
+  for (const part of results) {
+    const resultToolName = String(part.toolName || part.name || '').trim().toLowerCase();
+    const candidates = [...abliterContinuationCallIds.entries()]
+      .filter(([, state]) => now - Number(state.armedAt || 0) <= ABLITER_CONTINUATION_FUZZY_MS)
+      .filter(([, state]) => resultToolName && String(state.toolName || '').toLowerCase() === resultToolName)
+      .sort((a, b) => Number(b[1].armedAt || 0) - Number(a[1].armedAt || 0));
+    if (candidates.length > 0) {
+      const [key, state] = candidates[0];
+      abliterContinuationCallIds.delete(key);
+      logInfo(`Abliter tool continuation recovered rewritten call id ${part.callId || '(missing)'} by tool name ${resultToolName} (step ${state.step}).`);
+      return state;
+    }
+  }
+
+  const recent = [...abliterContinuationCallIds.entries()]
+    .filter(([, state]) => now - Number(state.armedAt || 0) <= ABLITER_CONTINUATION_FUZZY_MS);
+  if (results.length > 0 && recent.length === 1) {
+    const [key, state] = recent[0];
+    abliterContinuationCallIds.delete(key);
+    logInfo(`Abliter tool continuation recovered rewritten call id ${results[0].callId || '(missing)'} from the sole recent pending call (step ${state.step}).`);
+    return state;
   }
   return undefined;
 }
@@ -1630,12 +1685,20 @@ function sanitizeMessagesForAbliter(messages) {
       .map((part) => {
         if (typeof part === 'string') {
           if (isAssistant && containsInternalPromptWrapper(part)) return undefined;
-          return isUser ? extractActualUserRequest(part) : part;
+          const value = isUser ? extractActualUserRequest(part) : part;
+          return compactAbliterEvidence(value, 12000);
         }
         if (isTextPart(part)) {
           if (isAssistant && containsInternalPromptWrapper(part.value)) return undefined;
           const value = isUser ? extractActualUserRequest(part.value) : String(part.value || '');
-          return value ? new vscode.LanguageModelTextPart(value) : undefined;
+          return value ? new vscode.LanguageModelTextPart(compactAbliterEvidence(value, 12000)) : undefined;
+        }
+        if (isToolResultPart(part)) {
+          const value = toolResultToText(part);
+          return {
+            ...part,
+            content: [new vscode.LanguageModelTextPart(compactAbliterEvidence(value, 12000))]
+          };
         }
         return part;
       })
@@ -2427,7 +2490,7 @@ async function runAbliterReplay(ctx) {
   const wantsToolHandoff = useDirectTools;
   const holdFallbackText = advisorEnabled;
   const fallbackMayCallTools = getAbliterSetting('abliterProxyDropTools', true) === false && !abliterToolHandoff();
-  const result = await sendOaiUpstream(fallbackConfig, fallbackKey, fallbackRequest, {
+  const fallbackSink = {
     onText: (text) => {
       answer += text;
       // A handoff answer is an untrusted execution proposal, not a user-facing
@@ -2445,9 +2508,36 @@ async function runAbliterReplay(ctx) {
         logInfo(`Abliter replay suppressed a fallback-generated tool call (${call?.function?.name || 'unknown'}); execution remains with the primary model.`);
       }
     }
-  }, token);
+  };
+  let result = await sendOaiUpstream(fallbackConfig, fallbackKey, fallbackRequest, fallbackSink, token);
 
-  const answerText = (answer || result?.completionText || '').trim();
+  // Tool-result continuations occasionally produce a reasoning-only or empty
+  // streamed turn on vLLM/Qwen. Retry once as JSON with an explicit completion
+  // nudge before treating it as a terminal failure.
+  if (isEmptyAssistantResult(result)) {
+    const reasoningChars = String(result?.assistantMessage?.reasoning_content || '').length;
+    logInfo(`Abliter replay returned no visible answer (reasoning=${reasoningChars}); retrying once without streaming.`);
+    answer = '';
+    const retryRequest = buildEmptyAbliterRetryRequest(fallbackRequest);
+    result = await sendOaiUpstream(fallbackConfig, fallbackKey, retryRequest, fallbackSink, token);
+  }
+
+  if (isEmptyAssistantResult(result)) {
+    const status = 'The fallback model returned no visible answer or tool call after processing the latest tool result. No additional action was performed.';
+    progress.report(new vscode.LanguageModelTextPart(status));
+    result = {
+      ...result,
+      completionText: status,
+      assistantMessage: {
+        role: 'assistant',
+        content: status,
+        reasoning_content: result?.assistantMessage?.reasoning_content || '',
+        tool_calls: []
+      }
+    };
+  }
+
+  const answerText = stripThinkingMarkup(answer || result?.completionText || '').trim();
   logInfo(`Abliter replay finished: ${answerText.length} chars produced by ${fallback.id}.`);
 
   const fallbackToolCalls = assistantToolCallCount(result);
@@ -2546,6 +2636,34 @@ async function auditAbliterFinalAnswer(context, primaryConfig, candidate, eviden
 
 function shouldAuditAbliterAnswer(answerText, toolCallCount, primaryConfig) {
   return Boolean(String(answerText || '').trim() && Number(toolCallCount || 0) === 0 && primaryConfig);
+}
+
+function stripThinkingMarkup(value) {
+  let text = String(value || '');
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // Some Qwen/vLLM templates omit the opening marker but still emit the
+  // closing marker. Everything before it is hidden reasoning, not an answer.
+  const danglingClose = text.toLowerCase().lastIndexOf('</think>');
+  if (danglingClose >= 0) {
+    text = text.slice(danglingClose + '</think>'.length);
+  }
+  return text.trim();
+}
+
+function buildEmptyAbliterRetryRequest(request) {
+  const retry = {
+    ...request,
+    stream: false,
+    messages: [
+      ...(request?.messages || []),
+      {
+        role: 'user',
+        content: 'Your previous turn produced no visible answer. Continue from the latest verified tool result now: emit the next required tool call, or provide a concise final answer. Do not return hidden reasoning only.'
+      }
+    ]
+  };
+  delete retry.stream_options;
+  return retry;
 }
 
 function parseAbliterFinalAudit(value) {
@@ -2888,21 +3006,24 @@ function applyAbliterOverrides(config, request, options = {}) {
     delete request.tool_choice;
   }
 
-  // Give the fallback a real context window; without this Ollama truncates the
-  // replayed conversation to its 4096-token default.
-  const numCtx = Number(
-    getAbliterSetting('abliterProxyNumCtx', 0) ||
-    config?.num_ctx ||
-    config?.context_length ||
-    0
-  );
-  if (Number.isFinite(numCtx) && numCtx > 0) {
-    request.num_ctx = Math.min(numCtx, OLLAMA_MAX_NUM_CTX);
-  }
+  // num_ctx and num_gpu are Ollama-native request fields. Sending them to a
+  // remote OpenAI/vLLM endpoint can fail strict request validation with HTTP
+  // 400, so derive and attach them only for Ollama backends.
+  if (isOllamaApi(config)) {
+    const numCtx = Number(
+      getAbliterSetting('abliterProxyNumCtx', 0) ||
+      config?.num_ctx ||
+      config?.context_length ||
+      0
+    );
+    if (Number.isFinite(numCtx) && numCtx > 0) {
+      request.num_ctx = Math.min(numCtx, OLLAMA_MAX_NUM_CTX);
+    }
 
-  const numGpu = Number(getAbliterSetting('abliterProxyNumGpu', -1));
-  if (Number.isFinite(numGpu) && numGpu >= 0) {
-    request.num_gpu = numGpu;
+    const numGpu = Number(getAbliterSetting('abliterProxyNumGpu', -1));
+    if (Number.isFinite(numGpu) && numGpu >= 0) {
+      request.num_gpu = numGpu;
+    }
   }
   return request;
 }
@@ -8211,6 +8332,7 @@ module.exports = {
     selectAbliterTools,
     extractActualUserRequest,
     sanitizeMessagesForAbliter,
+    fitMessagesToContext,
     buildAbliterEvidenceDigest,
     compactAbliterEvidence,
     buildAbliterInjectedMessages,
@@ -8226,6 +8348,9 @@ module.exports = {
     parseAbliterCompletion,
     asksUserForImplementation,
     isAdvisorPolicyRefusal,
+    applyAbliterOverrides,
+    stripThinkingMarkup,
+    buildEmptyAbliterRetryRequest,
     rememberAbliterToolCall,
     consumeAbliterContinuation
   }
