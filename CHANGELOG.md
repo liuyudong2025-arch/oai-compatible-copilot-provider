@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.52 - 2026-10-22
+
+- Restored the concise English/Chinese extension description and documented the evidence-grounded abliter proxy throughout the README, including features, configuration, commands, and limitations.
+- 恢复精简的中英双语扩展简介，并在 README 的功能、配置、命令和使用限制中完整补充带证据校验的消融代理。
+
 ## 0.3.51 - 2026-10-22
 
 - 更新 VS Code 扩展详情页的简介，改为简洁中文，并补充 Agent 工具调用、模型路由和带证据校验的消融代理能力。

@@ -4,7 +4,7 @@
 
 ### Pick **any OpenAI-compatible model** from the Copilot Chat model picker — and keep everything else Copilot already gives you.
 
-[![Version](https://img.shields.io/badge/version-0.3.51-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
+[![Version](https://img.shields.io/badge/version-0.3.52-orange?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/liuyudong2025-arch/oai-compatible-copilot-provider/blob/main/LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104+-green?style=flat-square)](https://code.visualstudio.com)
 
@@ -80,6 +80,14 @@ Automatic `reasoning_content` replay for multi-turn tool-calling conversations. 
 
 ### 🔐 Secure Key Management
 API keys stored in **VS Code Secret Storage**, never logged, never exposed in the config panel. Headers are auto-redacted in the UI.
+
+</td>
+</tr>
+<tr>
+<td colspan="2">
+
+### 🧩 Evidence-Grounded Abliter Proxy
+When the primary model refuses a turn, route only that turn to a configurable abliterated model while retaining Copilot's workspace tools. A bounded primary-model advisor performs navigation, tool results are carried forward as an evidence ledger, and every text-only conclusion is audited before display. Tool calls still use VS Code's normal confirmation flow.
 
 </td>
 </tr>
@@ -218,6 +226,11 @@ Providers are reusable endpoints. Models reference providers by `providerId`, so
 | `matrixOaiCopilot.balanceRefreshMinutes` | `5` | Auto balance refresh interval |
 | `matrixOaiCopilot.copilot.thinkingEffort` | `"model"` | Thinking effort: `model` / `none` / `high` / `max` |
 | `matrixOaiCopilot.copilot.enableVisionProxy` | `true` | Describe images for text-only models |
+| `matrixOaiCopilot.copilot.enableAbliterProxy` | `false` | Enable refusal/sensitive-turn routing to an abliterated model |
+| `matrixOaiCopilot.copilot.abliterProxyModel` | `""` | Configured model ID used for abliterated fallback turns |
+| `matrixOaiCopilot.copilot.abliterProxyMode` | `"both"` | Routing mode: `refusal` / `preflight` / `both` / `off` |
+| `matrixOaiCopilot.copilot.abliterProxyUsePrimaryAdvisor` | `true` | Reuse the primary model for bounded navigation and evidence checks |
+| `matrixOaiCopilot.copilot.abliterProxyToolHandoff` | `false` | Expose a curated read/search/terminal tool set during fallback execution |
 | `matrixOaiCopilot.proxy.autoStart` | `false` | Auto-start local proxy |
 | `matrixOaiCopilot.proxy.port` | `8080` | Proxy listen port |
 | `matrixOaiCopilot.proxy.anthropicModelMapping` | `{}` | Claude model name → upstream model ID (Claude Code) |
@@ -266,6 +279,33 @@ DeepSeek reasoning models need `reasoning_content` passed back in tool-calling t
 | `thinkingFormat` | `auto` / `deepseek` / `always` / `none` | Controls reasoning replay |
 | `reasoningContentFallback` | `true` / `false` | Send empty reasoning on missing turns |
 | `reasoning_effort` | `high` / `max` | Thinking depth for DeepSeek V4 |
+
+---
+
+## 🧩 Evidence-Grounded Abliter Proxy
+
+The abliter proxy keeps ordinary requests on the selected primary model and reroutes only configured sensitive prompts or confirmed refusal responses. It is designed for small local fallback models without letting unverified prose masquerade as tool execution:
+
+- Semantic refusal confirmation avoids triggering on ordinary capability messages or corrections.
+- The primary model can remain a bounded workspace navigator while the fallback handles only the refused reasoning.
+- Only a curated tool set (`read_file`, search, directory listing, and terminal) is exposed when tool handoff is enabled.
+- Tool output is retained as explicitly untrusted evidence; matching names or strings do not prove identity or success.
+- Text-only conclusions and `COMPLETE` claims are checked against actual tool results before display.
+- Tool-call chains are bounded, resumable, and continue to use VS Code's normal confirmation UI.
+
+Minimal setup:
+
+```jsonc
+"matrixOaiCopilot.copilot.enableAbliterProxy": true,
+"matrixOaiCopilot.copilot.abliterProxyModel": "qwen3.5-abliterated:9b",
+"matrixOaiCopilot.copilot.abliterProxyMode": "refusal",
+"matrixOaiCopilot.copilot.abliterProxyUsePrimaryAdvisor": true,
+"matrixOaiCopilot.copilot.abliterProxyToolHandoff": true,
+"matrixOaiCopilot.copilot.abliterProxyDisableThinking": false,
+"matrixOaiCopilot.copilot.abliterProxyNumCtx": 16384
+```
+
+> Small 4B models are suitable for routing and constrained extraction, but reliable multi-step workspace reasoning generally needs a larger fallback model or strict evidence gates.
 
 ---
 
@@ -374,6 +414,10 @@ GitHub Copilot Agent starts an internal Explore subagent for code search. This e
 | `Matrix OAI Gateway: Open Settings` | Jump to extension settings |
 | `Matrix OAI Gateway: Set Copilot Thinking Effort` | Override thinking mode |
 | `Matrix OAI Gateway: Set Vision Proxy Model` | Choose image-description model |
+| `Matrix OAI Gateway: Set Abliter Proxy Model` | Select the abliterated fallback model |
+| `Matrix OAI Gateway: Set Abliter Classifier Model` | Select an optional semantic routing classifier |
+| `Matrix OAI Gateway: Set Abliter Proxy Mode` | Choose refusal, preflight, both, or off routing |
+| `Matrix OAI Gateway: Toggle Abliter Proxy` | Force or stop fallback routing for the current session |
 | `Matrix OAI Gateway: Reset Usage` | Reset usage statistics |
 | `Matrix OAI Gateway: Check API Balance` | Query API key balance |
 | `Matrix OAI Gateway: Write Codex Config` | Generate Codex CLI config |
@@ -443,8 +487,7 @@ Matrix OAI Gateway 可以把任意 OpenAI 兼容模型接入 VS Code / Copilot C
 - 🔌 **本地代理服务器** — 暴露 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 接口，支持 Codex CLI、Continue、curl 等外部工具
 - 💰 **余额查询** — 支持 DeepSeek、OpenAI、OpenRouter、智谱 GLM、SiliconFlow、Groq、Mistral 等 7+ 供应商，状态栏自动刷新
 - 🧠 **DeepSeek 思考模式** — 自动回放 `reasoning_content`，解决工具调用多轮对话的 `invalid_request_error`
-- 🔀 **Claude Code 第三方推理** — 通过 Anthropic API 透传让 Claude Code 使用 DeepSeek、GLM 等非 Claude 模型
-- 🔀 **Codex 模型映射** — Codex 指定别名模型名路由到任意配置模型
+- 🧩 **带证据校验的消融代理** — 主模型拒答后按配置路由到消融模型，复用已验证成果和受限工作区工具；纯文本结论、路径、值及完成声明会在展示前核对真实工具输出
 - 🔀 **Claude Code 第三方推理** — 通过 Anthropic API 透传让 Claude Code 使用 DeepSeek、GLM 等非 Claude 模型
 - 🔀 **Codex 模型映射** — Codex 指定别名模型名路由到任意配置模型
 - ⚡ **一键预设模型** — 15+ 预设模型（DeepSeek V4、GPT-4.1、Gemini 2.5、Qwen、GLM、Kimi、Groq、Ollama…）
