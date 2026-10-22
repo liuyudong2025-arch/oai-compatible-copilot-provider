@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.59 - 2026-10-22
+
+- Fixed compacted VS Code tool results losing non-enumerable `callId` and `toolName` properties, which left an incomplete tool protocol and caused an empty Qwen continuation.
+- 修复压缩 VS Code 工具结果时丢失不可枚举的 `callId`、`toolName` 属性，导致工具协议残缺并使 Qwen 续轮返回空响应的问题。
+
 ## 0.3.58 - 2026-10-22
 
 - Fixed abliterated tool loops unexpectedly terminating when VS Code or a tool bridge rewrites the tool-call ID.

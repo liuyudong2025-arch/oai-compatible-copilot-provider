@@ -1696,14 +1696,16 @@ function sanitizeMessagesForAbliter(messages) {
         if (isToolResultPart(part)) {
           const value = toolResultToText(part);
           return {
-            ...part,
+            callId: String(part.callId || ''),
+            ...(part.toolName ? { toolName: part.toolName } : {}),
+            ...(part.name ? { name: part.name } : {}),
             content: [new vscode.LanguageModelTextPart(compactAbliterEvidence(value, 12000))]
           };
         }
         return part;
       })
       .filter(Boolean);
-    return { ...message, content };
+    return { ...message, role: message.role, content };
   }).filter((message) => message.content.length > 0);
 }
 
