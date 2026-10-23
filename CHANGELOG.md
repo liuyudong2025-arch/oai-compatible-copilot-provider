@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.60 - 2026-10-23
+
+- Localized abliterated-proxy status messages to the latest user's language and instructed evidence-audit corrections to follow it.
+- Internal empty-response status is now displayed exactly once and bypasses evidence auditing instead of producing a duplicate correction.
+- 消融代理的状态提示会跟随最新用户消息的语言，证据审计的纠正文案也会保持一致。
+- 内部空响应状态现在只显示一次，并跳过证据审计，不再产生重复英文纠正。
+
 ## 0.3.59 - 2026-10-22
 
 - Fixed compacted VS Code tool results losing non-enumerable `callId` and `toolName` properties, which left an incomplete tool protocol and caused an empty Qwen continuation.
