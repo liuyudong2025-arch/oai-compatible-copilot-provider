@@ -1964,6 +1964,24 @@ function selectAbliterTools(tools) {
   return selected;
 }
 
+function isConceptualAbliterRequest(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+
+  // Questions asking what a term means, how two concepts differ, or how a
+  // hosted product is commonly "jailbroken" do not require workspace
+  // discovery. Giving the planner grep/file tools for these requests caused it
+  // to search the extension source instead of letting the fallback explain the
+  // concept directly.
+  const conceptual = /(?:是什么|什么意思|有何区别|什么区别|之间的关系|怎么理解|如何理解|解释一下|介绍一下|怎么(?:破甲|越狱|解除限制)|如何(?:破甲|越狱|解除限制)|what\s+does|what\s+is|difference\s+between|explain\b|how\s+(?:does|do)\b)/i.test(value);
+  const explicitWorkspaceAction = /(?:帮我|替我|请|直接|现在).{0,24}(?:修改|改下|修复|配置|安装|卸载|删除|运行|执行|搜索|查找|读取|检查|实现|创建|更新)|(?:in|inside)\s+(?:the\s+)?(?:workspace|repository|repo)|(?:^|[\\/])[\w.-]+(?:[\\/][\w.-]+)+/i.test(value);
+  // Short corrective follow-ups often omit the original question form. Treat
+  // "I mean the model"-style turns as conceptual too, while the workspace
+  // action guard above still wins for explicit edit/search/run requests.
+  const conceptualFollowUp = /(?:我说的是|我问的是|指的是|说的是|mean(?:t|ing)?)[^。！？!?\n]{0,32}(?:模型|版本|概念|区别|关系|model|version|concept|difference)/i.test(value);
+  return (conceptual || conceptualFollowUp) && !explicitWorkspaceAction;
+}
+
 function estimateToolSchemaTokens(tools) {
   return Math.ceil((tools || []).reduce((total, tool) => total + JSON.stringify(tool).length, 0) / 3);
 }
@@ -2252,7 +2270,14 @@ async function runAbliterReplay(ctx) {
   fallbackConfig.requestTimeoutSeconds = abliterTimeoutSeconds(fallback);
   const maxToolSteps = Math.max(1, Number(getAbliterSetting('abliterProxyMaxToolSteps', 6) || 6));
   const forceFinal = Boolean(continuation && continuation.step >= maxToolSteps);
-  const availableDirectTools = abliterToolHandoff() && !forceFinal ? selectAbliterTools(options?.tools) : [];
+  const userGoal = latestUserText(messages);
+  const conceptualRequest = !continuation && isConceptualAbliterRequest(userGoal);
+  const availableDirectTools = abliterToolHandoff() && !forceFinal && !conceptualRequest
+    ? selectAbliterTools(options?.tools)
+    : [];
+  if (conceptualRequest) {
+    logInfo('Abliter replay identified a conceptual question; workspace tools are withheld.');
+  }
   const advisorEnabled = !forceFinal && getAbliterSetting('abliterProxyUsePrimaryAdvisor', true) !== false;
   const evidenceDigest = buildAbliterEvidenceDigest(messages);
   const dialogueContext = buildRecentDialogueContext(messages);
@@ -2302,7 +2327,7 @@ async function runAbliterReplay(ctx) {
     return { result: advisor.result, config: advisor.config, apiKey: advisor.apiKey };
   }
   let advisorAskedForInput = advisorNote && /\bASK_INPUT\b/i.test(advisorNote);
-  let advisorDeclinedNavigation = isAdvisorPolicyRefusal(advisorNote);
+  let advisorDeclinedNavigation = Boolean(advisor.declined) || isAdvisorPolicyRefusal(advisorNote);
 
   // Models sometimes ask the user for information that is still discoverable
   // from a known resource. Give the planner one corrective pass with tools
@@ -2333,7 +2358,7 @@ async function runAbliterReplay(ctx) {
       advisor = recovery;
       advisorNote = String(recovery.note).trim();
       advisorAskedForInput = /\bASK_INPUT\b/i.test(advisorNote);
-      advisorDeclinedNavigation = isAdvisorPolicyRefusal(advisorNote);
+      advisorDeclinedNavigation = Boolean(recovery.declined) || isAdvisorPolicyRefusal(advisorNote);
     }
   }
   // A user normally specifies the desired outcome, not the helper program that
@@ -2367,7 +2392,7 @@ async function runAbliterReplay(ctx) {
       advisor = discovery;
       advisorNote = String(discovery.note).trim();
       advisorAskedForInput = /\bASK_INPUT\b/i.test(advisorNote);
-      advisorDeclinedNavigation = isAdvisorPolicyRefusal(advisorNote);
+      advisorDeclinedNavigation = Boolean(discovery.declined) || isAdvisorPolicyRefusal(advisorNote);
     }
     if (!discovery.toolCall && advisorAskedForInput) {
       // The primary planner was explicitly told to perform workspace
@@ -2573,7 +2598,12 @@ async function runAbliterReplay(ctx) {
 
   const fallbackToolCalls = assistantToolCallCount(result);
   let answerForUser = answerText;
-  const shouldAuditFinalText = shouldAuditAbliterAnswer(answerText, fallbackToolCalls, primaryConfig);
+  const shouldAuditFinalText = shouldAuditAbliterAnswer(
+    answerText,
+    fallbackToolCalls,
+    primaryConfig,
+    !conceptualRequest
+  );
   if (shouldAuditFinalText) {
     const audit = await auditAbliterFinalAnswer(
       context,
@@ -2680,8 +2710,13 @@ async function auditAbliterFinalAnswer(context, primaryConfig, candidate, eviden
   }
 }
 
-function shouldAuditAbliterAnswer(answerText, toolCallCount, primaryConfig) {
-  return Boolean(String(answerText || '').trim() && Number(toolCallCount || 0) === 0 && primaryConfig);
+function shouldAuditAbliterAnswer(answerText, toolCallCount, primaryConfig, requiresEvidence = true) {
+  return Boolean(
+    requiresEvidence &&
+    String(answerText || '').trim() &&
+    Number(toolCallCount || 0) === 0 &&
+    primaryConfig
+  );
 }
 
 function abliterUiText(messages, chinese, english) {
@@ -2788,7 +2823,10 @@ async function runAbliterPrimaryAdvisor(context, primaryConfig, messages, dialog
           'and perform exactly one next action using only known resources and identifiers. When the latest user reply ' +
           'selects or confirms an earlier proposed action, execute that action rather than restating or rediscovering ' +
           'the plan. A CONFIRMED ACTION block is an already-resolved instruction, not a reason to ask the user to ' +
-          'redefine the target; use ASK_INPUT only when a concrete tool argument is genuinely absent from both the ' +
+          'redefine the target. If the user is asking for a general explanation, definition, comparison, or how a ' +
+          'concept works without requesting workspace inspection or modification, output DELEGATE immediately and ' +
+          'do not search files or code. ' +
+          'Use ASK_INPUT only when a concrete tool argument is genuinely absent from both the ' +
           'confirmed action and verified evidence. Never invent ' +
           'paths, names, formats, tools, or locations from words in the request. If a required locator or other input ' +
           'is missing, output ASK_INPUT and state precisely what is needed. Do not recommend broad, equivalent, or ' +
@@ -2842,7 +2880,7 @@ async function runAbliterPrimaryAdvisor(context, primaryConfig, messages, dialog
     }
     if (!note || looksLikeRefusal(note)) {
       logInfo(`Abliter primary advisor produced no usable navigation note (${note ? 'refusal' : 'empty'}).`);
-      return { result, config: advisorConfig, apiKey };
+      return { declined: true, result, config: advisorConfig, apiKey };
     }
     logInfo(`Abliter primary advisor produced ${note.length} chars from ${primaryConfig.id}.`);
     return { note, result, config: advisorConfig, apiKey };
@@ -2948,6 +2986,9 @@ function looksLikeRefusal(text) {
   if (hasShortChineseActionRefusal(haystack)) {
     return true;
   }
+  if (hasDirectChineseHelpRefusal(haystack)) {
+    return true;
+  }
   // A model saying it cannot *see or access* a page/session/tool is a
   // capability limitation, not a safety refusal. Routing those answers to an
   // uncensored model is both surprising and useless. An explicit safety/policy
@@ -2964,8 +3005,14 @@ function hasShortChineseActionRefusal(text) {
   return /^(?:#{1,6}\s*)?(?:我)?不(?:再|继续|会)?(?:做|找|查|看|提取|导出|执行|协助|帮助|帮|提供|处理|破解|分析|定位|获取|恢复)(?:了|这个|该项|该任务|这件事)?[。.!！：:\s]/u.test(value);
 }
 
+function hasDirectChineseHelpRefusal(text) {
+  const value = String(text || '').trim();
+  return /(?:这个|这件事|这项任务|该请求)?我(?:确实|真的)?(?:没法|无法|不能|不可以)(?:再|继续)?(?:帮你|协助你|替你|为你)?(?:做|完成|处理|提供|实施|执行|回答|说明)/u.test(value);
+}
+
 function hasExplicitTaskRefusal(text) {
   const value = String(text || '').toLowerCase();
+  if (hasDirectChineseHelpRefusal(value)) return true;
   return /(?:我不会|我不再|我拒绝|不会再|不能继续|不再继续|不会继续).{0,32}(?:继续|尝试|执行|提取|导出|提供|协助|处理|该请求|这个请求)|(?:i (?:will not|won't|refuse to)|i(?:'m| am) not going to).{0,48}(?:continue|attempt|perform|execute|extract|export|provide|assist|help)/iu.test(value);
 }
 
@@ -8380,6 +8427,7 @@ module.exports = {
     hasShortChineseActionRefusal,
     hasExplicitTaskRefusal,
     selectAbliterTools,
+    isConceptualAbliterRequest,
     extractActualUserRequest,
     sanitizeMessagesForAbliter,
     fitMessagesToContext,

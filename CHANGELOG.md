@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.64 - 2026-10-23
+
+- Chinese refusals phrased as “这个我没法帮你做” now trigger the abliterated fallback immediately.
+- Capability limitations such as being unable to read a file remain excluded from refusal routing.
+- “这个我没法帮你做”这类中文拒绝现在会立即触发消融回退。
+- “无法读取文件”等能力限制仍不会被误判为安全拒绝。
+
+## 0.3.63 - 2026-10-23
+
+- Short corrective follow-ups such as "I mean the Codex model" are now recognized as conceptual turns.
+- These follow-ups no longer receive workspace tools or misleading evidence-audit/tool-limit warnings.
+- “我说的是 Codex 模型”这类省略式纠正追问现在也会被识别为概念问题。
+- 此类追问不再获得工作区工具，也不会再触发误导性的证据审计或工具上限提示。
+
+## 0.3.62 - 2026-10-23
+
+- Conceptual abliterated-fallback answers now bypass the tool-evidence auditor, which is reserved for claims about files, values, and completed operations.
+- Fixed ordinary explanations being replaced by a misleading tool-step-limit warning even though no tools were requested.
+- 消融回退生成的概念性回答现在会跳过工具证据审计；证据审计只用于文件、数值和已完成操作等需要验证的结论。
+- 修复普通解释被错误替换成“工具步数达到上限”提示的问题，即使该轮根本没有请求工具。
+
+## 0.3.61 - 2026-10-23
+
+- Conceptual questions such as “how Codex jailbreaks work” no longer trigger blind workspace searches during abliterated fallback.
+- Empty or refusal-only primary-advisor turns now explicitly transfer navigation to the local fallback, preserving its curated tools instead of silently discarding a structured continuation.
+- 概念解释类问题（例如“Codex 插件怎么破甲”）在消融回退时不再盲目搜索工作区。
+- 主模型导航顾问返回空白或再次拒绝时，会明确把导航权交给本地回退模型并保留精选工具，不再静默丢弃结构化续轮。
+
 ## 0.3.60 - 2026-10-23
 
 - Localized abliterated-proxy status messages to the latest user's language and instructed evidence-audit corrections to follow it.
